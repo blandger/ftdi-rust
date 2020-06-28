@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use libusb_sys as ffi;
-use crate::ftdi::{ftdi_chip_type, ftdi_module_detach_mode};
+use crate::ftdi::constants::{ftdi_chip_type, ftdi_module_detach_mode};
 use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
 
@@ -55,7 +55,7 @@ pub struct ftdi_context {
      bitbang_mode: u8,
 
     /// Decoded eeprom structure
-    eeprom: ftdi_eeprom,
+    eeprom: *mut ftdi_eeprom,
 
     /// String representation of last error
     error_str: i8,
@@ -74,4 +74,12 @@ pub struct ftdi_transfer_control {
     pub ftdi: Arc<Mutex<ftdi_context>>,
     // pub transfer: ffi::libusb_transfer,
     pub transfer: Arc<Mutex<ffi::libusb_transfer>>,
+}
+
+/// brief list of usb devices created by ftdi_usb_find_all()
+pub struct ftdi_device_list {
+    /// pointer to next entry
+    // pub ftdi_device_list *next,
+    /// pointer to libusb's usb_device
+    pub dev: *mut ffi::libusb_device,
 }
