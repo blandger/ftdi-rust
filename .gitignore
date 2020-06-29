@@ -1,4 +1,5 @@
-/target
+**/target
 /.idea
-*.code-workspace
+**/*.iml
+**/*.code-workspace
 Cargo.lock

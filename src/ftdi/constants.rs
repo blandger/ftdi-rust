@@ -1,3 +1,6 @@
+#![allow(non_camel_case_types)]
+#![allow(dead_code)]
+#![allow(const_err)] // TODO: check later
 
 use libusb_sys as ffi;
 
@@ -263,3 +266,58 @@ pub const SIO_SET_DTR_LOW: u8 = (0 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u
 pub const SIO_SET_RTS_MASK: u8 = 0x2;
 pub const SIO_SET_RTS_HIGH: u8 = (2 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
 pub const SIO_SET_RTS_LOW: u8 = (0 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
+
+pub const FT1284_CLK_IDLE_STATE: u8 = 0x01;
+/// DS_FT232H 1.3 amd ftd2xx.h 1.0.4 disagree here
+pub const FT1284_DATA_LSB: u8 = 0x02;
+pub const FT1284_FLOW_CONTROL: u8 = 0x04;
+pub const POWER_SAVE_DISABLE_H: u8 = 0x80;
+
+pub const USE_SERIAL_NUM: u8 = 0x08;
+
+
+/// Invert TXD#
+pub const INVERT_TXD: u8 = 0x01;
+/// Invert RXD#
+pub const INVERT_RXD: u8 = 0x02;
+/// Invert RTS#
+pub const INVERT_RTS: u8 = 0x04;
+/// Invert CTS#
+pub const INVERT_CTS: u8 = 0x08;
+/// Invert DTR#
+pub const INVERT_DTR: u8 = 0x10;
+/// Invert DSR#
+pub const INVERT_DSR: u8 = 0x20;
+/// Invert DCD#
+pub const INVERT_DCD: u8 = 0x40;
+/// Invert RI#
+pub const INVERT_RI: u8 = 0x80;
+
+//// Interface Mode
+pub const CHANNEL_IS_UART: u8 = 0x0;
+pub const CHANNEL_IS_FIFO: u8 = 0x1;
+pub const CHANNEL_IS_OPTO: u8 = 0x2;
+pub const CHANNEL_IS_CPU: u8 = 0x4;
+pub const CHANNEL_IS_FT1284: u8 = 0x8;
+
+pub const CHANNEL_IS_RS485: u8 = 0x10;
+
+pub const DRIVE_4MA: u8 = 0;
+pub const DRIVE_8MA: u8 = 1;
+pub const DRIVE_12MA: u8 = 2;
+pub const DRIVE_16MA: u8 = 3;
+pub const SLOW_SLEW: u8 = 4;
+pub const IS_SCHMITT: u8 = 8;
+
+/// Driver Type
+pub const DRIVER_VCP: u8 = 0x08;
+/// FT232H has moved the VCP bit
+pub const DRIVER_VCPH: u8 = 0x10;
+
+pub const USE_USB_VERSION_BIT: u8 = 0x10;
+
+pub const SUSPEND_DBUS7_BIT: u8 = 0x80;
+
+/// High current drive
+pub const HIGH_CURRENT_DRIVE: u8 = 0x10;
+pub const HIGH_CURRENT_DRIVE_R: u8 = 0x04;
