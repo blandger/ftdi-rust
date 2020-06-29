@@ -12,3 +12,6 @@ description = "Console application to check and use Rust library for FTDI chips"
 
 [dependencies]
 ftdi_library = { path = "../ftdi_library" }
+libusb-sys = "0.2.3"
+log = "0.4"
+log4rs = "0.12"

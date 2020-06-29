@@ -1,11 +1,18 @@
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
 #![allow(const_err)]
+#![allow(unused_imports)]
 
 use libusb_sys as ffi;
+use libc;
+use libc::{c_int,c_uchar};
 use crate::ftdi::constants::{*};
 use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
+use std::mem;
+use std::io;
+use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
+use log::{debug, info, error};
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -14,9 +21,9 @@ use std::sync::{Arc, Mutex};
 pub struct ftdi_context {
     /// USB specific
     /// libusb's context
-    usb_ctx: Arc<Mutex<ffi::libusb_context>>,
+    usb_ctx: *mut ffi::libusb_context,
     /// libusb's usb_dev_handle
-    usb_dev: Arc<Mutex<ffi::libusb_device_handle>>,
+    usb_dev: Option<*mut ffi::libusb_device_handle>,
     /// usb read timeout
     usb_read_timeout: i32,
     /// usb write timeout
@@ -56,13 +63,151 @@ pub struct ftdi_context {
      bitbang_mode: u8,
 
     /// Decoded eeprom structure
-    eeprom: *mut ftdi_eeprom,
+    eeprom: ftdi_eeprom,
 
     /// String representation of last error
     error_str: i8,
 
     /// Defines behavior in case a kernel module is already attached to the device
     module_detach_mode: ftdi_module_detach_mode,
+}
+
+impl ftdi_context {
+
+    fn get_error(err: c_int) -> &'static str {
+        match err {
+            ffi::LIBUSB_SUCCESS             => "success",
+            ffi::LIBUSB_ERROR_IO            => "I/O error",
+            ffi::LIBUSB_ERROR_INVALID_PARAM => "invalid parameter",
+            ffi::LIBUSB_ERROR_ACCESS        => "access denied",
+            ffi::LIBUSB_ERROR_NO_DEVICE     => "no such device",
+            ffi::LIBUSB_ERROR_NOT_FOUND     => "entity not found",
+            ffi::LIBUSB_ERROR_BUSY          => "resource busy",
+            ffi::LIBUSB_ERROR_TIMEOUT       => "opteration timed out",
+            ffi::LIBUSB_ERROR_OVERFLOW      => "overflow error",
+            ffi::LIBUSB_ERROR_PIPE          => "pipe error",
+            ffi::LIBUSB_ERROR_INTERRUPTED   => "system call interrupted",
+            ffi::LIBUSB_ERROR_NO_MEM        => "insufficient memory",
+            ffi::LIBUSB_ERROR_NOT_SUPPORTED => "operation not supported",
+            ffi::LIBUSB_ERROR_OTHER | _     => "other error"
+        }
+    }
+
+    pub fn new() -> ftdi_context {
+        debug!("start ftdi context creation...");
+        let mut context: *mut ffi::libusb_context = unsafe { mem::MaybeUninit::uninit().assume_init() };
+        debug!("ftdi context before init...");
+        match unsafe { ffi::libusb_init(&mut context) } {
+            0 => {
+                debug!("ftdi context initialized - OK!");
+            },
+            e => {
+                let error_msg = ftdi_context::get_error(e);
+                error!("{}", error_msg);
+                panic!("libusb_init() failed {}", error_msg)
+            }
+        };
+
+        let ftdi_eeprom = ftdi_eeprom {
+            vendor_id: 0,
+            product_id: 0,
+            initialized_for_connected_device: false,
+            self_powered: 0,
+            remote_wakeup: 0,
+            is_not_pnp: false,
+            suspend_dbus7: 0,
+            in_is_isochronous: false,
+            out_is_isochronous: false,
+            suspend_pull_downs: 0,
+            use_serial: false,
+            usb_version: 0,
+            use_usb_version: 0,
+            max_power: 0,
+            manufacturer: [0;256],
+            product: [0;256],
+            serial: [0;256],
+            channel_a_type: 0,
+            channel_b_type: 0,
+            channel_a_driver: 0,
+            channel_b_driver: 0,
+            channel_c_driver: 0,
+            channel_d_driver: 0,
+            channel_a_rs485enable: false,
+            channel_b_rs485enable: false,
+            channel_c_rs485enable: false,
+            channel_d_rs485enable: false,
+            cbus_function: [0i32; 10],
+            high_current: 0,
+            high_current_a: 0,
+            high_current_b: 0,
+            invert: 0,
+            external_oscillator: 0,
+            group0_drive: 0,
+            group0_schmitt: 0,
+            group0_slew: 0,
+            group1_drive: 0,
+            group1_schmitt: 0,
+            group1_slew: 0,
+            group2_drive: 0,
+            group2_schmitt: 0,
+            group2_slew: 0,
+            group3_drive: 0,
+            group3_schmitt: 0,
+            group3_slew: 0,
+            powersave: 0,
+            clock_polarity: 0,
+            data_order: 0,
+            flow_control: 0,
+            user_data_addr: 0,
+            user_data_size: 0,
+            user_data: [0;256],
+            size: 0,
+            chip: 0,
+            buf: [0;256],
+            release_number: 0,
+        };
+        debug!("ftdi context is DONE!");
+        ftdi_context{
+            usb_ctx: context,
+            usb_dev: None,
+            usb_read_timeout: 5000,
+            usb_write_timeout: 5000,
+            r#type: ftdi_chip_type::TYPE_BM,
+            baudrate: -1,
+            bitbang_enabled: 0,
+            readbuffer: [0;256],
+            readbuffer_offset: 0,
+            readbuffer_remaining: 0,
+            readbuffer_chunksize: 0,
+            writebuffer_chunksize: 4096,
+            max_packet_size: 0,
+            interface: false,
+            index: 0,
+            in_ep: 0,
+            out_ep: 0,
+            bitbang_mode: 0,
+            eeprom: ftdi_eeprom,
+            error_str: 0,
+            module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
+        }
+    }
+}
+
+impl Drop for ftdi_context {
+    fn drop(&mut self) {
+        debug!("dropping ftdi context...");
+        unsafe { ffi::libusb_exit(self.usb_ctx) };
+    }
+}
+
+
+#[derive(Debug, Snafu)]
+enum Error {
+    #[snafu(display("Usb sys init error {}: {}", code, source))]
+    UsbInit {
+        code: i32,
+        source: io::Error,
+    }
 }
 
 // #[derive(Copy, Debug)]

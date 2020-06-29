@@ -1,0 +1,13 @@
+refresh_rate: 30 seconds
+appenders:
+  stdout:
+    kind: console
+
+root:
+  level: debug
+  appenders:
+    - stdout
+loggers:
+  ftdi:
+    level: debug
+    additive: false

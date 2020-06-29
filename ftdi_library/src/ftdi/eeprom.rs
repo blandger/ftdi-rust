@@ -5,6 +5,8 @@ pub const FTDI_MAX_EEPROM_SIZE: usize = 256;
 
 pub const MAX_POWER_MILLIAMP_PER_UNIT: u8 = 2;
 
+// #[derive(Copy, Clone, Debug)]
+// #[derive(Debug)]
 /// brief FTDI eeprom structure
 pub struct ftdi_eeprom {
     /// vendor id
@@ -37,13 +39,15 @@ pub struct ftdi_eeprom {
     /// usb version
     pub usb_version: i32,
     // Use usb version on FT2232 devices
-    use_usb_version: i32,
+    pub use_usb_version: i32,
     /// maximum power
     pub max_power: i32,
 
     /// manufacturer name
     pub manufacturer: [u8; 256],
+    // pub manufacturer: String,
     /// product name
+    // pub product: String,
     pub product: [u8; 256],
     /// serial number
     pub serial: [u8; 256],

@@ -1,4 +1,4 @@
-mod ftdi;
+pub mod ftdi;
 
 #[cfg(test)]
 mod tests {

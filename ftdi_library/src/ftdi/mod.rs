@@ -1,5 +1,5 @@
 
 mod constants;
-mod core;
-mod eeprom;
+pub mod core;
+pub mod eeprom;
 
