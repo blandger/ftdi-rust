@@ -1,17 +1,5 @@
-[package]
-name = "rust-ftdi"
-version = "0.1.0"
-authors = ["Yuriy Larin"]
-license = "MIT/Apache-2.0/BSD-3-Clause"
-repository = "https://github.com/blandger/rust-ftdi"
-homepage = "https://github.com/blandger/rust-ftdi"
-edition = "2018"
-description = "FDTI chips library."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-libc = "0.2.71"
-libusb-sys = "0.2.3"
-bytes = "0.5.4"
-snafu = "0.6.8"
+[workspace]
+members = [
+    "console",
+    "ftdi_library"
+]
