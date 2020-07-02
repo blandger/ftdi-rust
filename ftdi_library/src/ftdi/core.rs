@@ -13,6 +13,7 @@ use std::mem;
 use std::io;
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, error};
+use std::mem::MaybeUninit;
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -74,26 +75,27 @@ pub struct ftdi_context {
 
 impl ftdi_context {
 
-    fn get_error(err: c_int) -> &'static str {
+    // fn get_error(err: c_int) -> &'static str {
+    pub fn get_usb_sys_init_error(err: c_int) -> FtdiError {
         match err {
-            ffi::LIBUSB_SUCCESS             => "success",
-            ffi::LIBUSB_ERROR_IO            => "I/O error",
-            ffi::LIBUSB_ERROR_INVALID_PARAM => "invalid parameter",
-            ffi::LIBUSB_ERROR_ACCESS        => "access denied",
-            ffi::LIBUSB_ERROR_NO_DEVICE     => "no such device",
-            ffi::LIBUSB_ERROR_NOT_FOUND     => "entity not found",
-            ffi::LIBUSB_ERROR_BUSY          => "resource busy",
-            ffi::LIBUSB_ERROR_TIMEOUT       => "opteration timed out",
-            ffi::LIBUSB_ERROR_OVERFLOW      => "overflow error",
-            ffi::LIBUSB_ERROR_PIPE          => "pipe error",
-            ffi::LIBUSB_ERROR_INTERRUPTED   => "system call interrupted",
-            ffi::LIBUSB_ERROR_NO_MEM        => "insufficient memory",
-            ffi::LIBUSB_ERROR_NOT_SUPPORTED => "operation not supported",
-            ffi::LIBUSB_ERROR_OTHER | _     => "other error"
+            ffi::LIBUSB_SUCCESS             => FtdiError::UsbInit{code: 0, message: "success".to_string()},
+            ffi::LIBUSB_ERROR_IO            => FtdiError::UsbInit{code: -1, message: "I/O error".to_string()},
+            ffi::LIBUSB_ERROR_INVALID_PARAM => FtdiError::UsbInit{code: -2, message: "invalid parameter".to_string()},
+            ffi::LIBUSB_ERROR_ACCESS        => FtdiError::UsbInit{code: -3, message: "access denied".to_string()},
+            ffi::LIBUSB_ERROR_NO_DEVICE     => FtdiError::UsbInit{code: -4, message: "no such device".to_string()},
+            ffi::LIBUSB_ERROR_NOT_FOUND     => FtdiError::UsbInit{code: -5, message: "entity not found".to_string()},
+            ffi::LIBUSB_ERROR_BUSY          => FtdiError::UsbInit{code: -6, message: "resource busy".to_string()},
+            ffi::LIBUSB_ERROR_TIMEOUT       => FtdiError::UsbInit{code: -7, message: "operation timed out".to_string()},
+            ffi::LIBUSB_ERROR_OVERFLOW      => FtdiError::UsbInit{code: -8, message: "overflow error".to_string()},
+            ffi::LIBUSB_ERROR_PIPE          => FtdiError::UsbInit{code: -9, message: "pipe error".to_string()},
+            ffi::LIBUSB_ERROR_INTERRUPTED   => FtdiError::UsbInit{code: -10, message: "system call interrupted".to_string()},
+            ffi::LIBUSB_ERROR_NO_MEM        => FtdiError::UsbInit{code: -11, message: "insufficient memory".to_string()},
+            ffi::LIBUSB_ERROR_NOT_SUPPORTED => FtdiError::UsbInit{code: -12, message: "operation not supported".to_string()},
+            ffi::LIBUSB_ERROR_OTHER | _     => FtdiError::UsbInit{code: -99, message: "other error".to_string()},
         }
     }
 
-    pub fn new() -> ftdi_context {
+    pub fn new() -> Result<ftdi_context> {
         debug!("start ftdi context creation...");
         let mut context: *mut ffi::libusb_context = unsafe { mem::MaybeUninit::uninit().assume_init() };
         debug!("ftdi context before init...");
@@ -102,9 +104,10 @@ impl ftdi_context {
                 debug!("ftdi context initialized - OK!");
             },
             e => {
-                let error_msg = ftdi_context::get_error(e);
-                error!("{}", error_msg);
-                panic!("libusb_init() failed {}", error_msg)
+                // Err(ftdi_context::get_error(e))
+                let error_enum = ftdi_context::get_usb_sys_init_error(e);
+                error!("{}", error_enum);
+                // Err(error_enum)
             }
         };
 
@@ -166,8 +169,7 @@ impl ftdi_context {
             buf: [0;256],
             release_number: 0,
         };
-        debug!("ftdi context is DONE!");
-        ftdi_context{
+        let ftdi = ftdi_context {
             usb_ctx: context,
             usb_dev: None,
             usb_read_timeout: 5000,
@@ -189,24 +191,38 @@ impl ftdi_context {
             eeprom: ftdi_eeprom,
             error_str: 0,
             module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
-        }
+        };
+        debug!("ftdi context is DONE!");
+        Ok(ftdi)
     }
 }
 
 impl Drop for ftdi_context {
     fn drop(&mut self) {
-        debug!("dropping ftdi context...");
+        debug!("closing ftdi context...");
+        match self.usb_dev {
+            Some(usb_device) => {
+                debug!("closing ftdi \'usb device handler\' context...");
+                unsafe {ffi::libusb_close(usb_device);}
+            }
+            None => {
+                debug!("NO ftdi \'usb device handler\' to close...");
+            }
+        }
+        debug!("before usb context exit...");
         unsafe { ffi::libusb_exit(self.usb_ctx) };
+        debug!("closing ftdi context is DONE!");
     }
 }
 
+type Result<T, E = FtdiError> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
-enum Error {
-    #[snafu(display("Usb sys init error {}: {}", code, source))]
+pub enum FtdiError {
+    #[snafu(display("USB SYS INIT: {} - {}", code, message))]
     UsbInit {
         code: i32,
-        source: io::Error,
+        message: String,
     }
 }
 
