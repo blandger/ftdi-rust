@@ -52,9 +52,9 @@ pub struct ftdi_context {
 
     /// FTDI FT2232C requirements
     /// FT2232C interface number: 0 or 1
-    interface: bool,   /* 0 or 1 */
+    interface: u8,   /* 0 or 1 */
     /// FT2232C index number: 1 or 2
-    index: i32,       /* 1 or 2 */
+    index: u8,       /* 1 or 2 */
     /// Endpoints */
     /// FT2232C end points: 1 or 2
     in_ep: i32,
@@ -75,7 +75,6 @@ pub struct ftdi_context {
 
 impl ftdi_context {
 
-    // fn get_error(err: c_int) -> &'static str {
     pub fn get_usb_sys_init_error(err: c_int) -> FtdiError {
         match err {
             ffi::LIBUSB_SUCCESS             => FtdiError::UsbInit{code: 0, message: "success".to_string()},
@@ -95,7 +94,7 @@ impl ftdi_context {
         }
     }
 
-    pub fn new() -> Result<ftdi_context> {
+    pub fn new() -> Result<Self> {
         debug!("start ftdi context creation...");
         let mut context: *mut ffi::libusb_context = unsafe { mem::MaybeUninit::uninit().assume_init() };
         debug!("ftdi context before init...");
@@ -169,31 +168,64 @@ impl ftdi_context {
             buf: [0;256],
             release_number: 0,
         };
-        let ftdi = ftdi_context {
-            usb_ctx: context,
-            usb_dev: None,
-            usb_read_timeout: 5000,
-            usb_write_timeout: 5000,
-            r#type: ftdi_chip_type::TYPE_BM,
-            baudrate: -1,
-            bitbang_enabled: 0,
-            readbuffer: [0;256],
-            readbuffer_offset: 0,
-            readbuffer_remaining: 0,
-            readbuffer_chunksize: 0,
-            writebuffer_chunksize: 4096,
-            max_packet_size: 0,
-            interface: false,
-            index: 0,
-            in_ep: 0,
-            out_ep: 0,
-            bitbang_mode: 0,
-            eeprom: ftdi_eeprom,
-            error_str: 0,
-            module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
-        };
         debug!("ftdi context is DONE!");
-        Ok(ftdi)
+        Ok(
+            ftdi_context {
+                usb_ctx: context,
+                usb_dev: None,
+                usb_read_timeout: 5000,
+                usb_write_timeout: 5000,
+                r#type: ftdi_chip_type::TYPE_BM,
+                baudrate: -1,
+                bitbang_enabled: 0,
+                readbuffer: [0;256],
+                readbuffer_offset: 0,
+                readbuffer_remaining: 0,
+                readbuffer_chunksize: 0,
+                writebuffer_chunksize: 4096,
+                max_packet_size: 0,
+                interface: 0,
+                index: 0,
+                in_ep: 0,
+                out_ep: 0,
+                bitbang_mode: 0,
+                eeprom: ftdi_eeprom,
+                error_str: 0,
+                module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
+            }
+        )
+    }
+
+    // fn ftdi_set_interface(context: &mut ftdi_context, interface_type: ftdi_interface) {
+    pub fn set_interface_type(&mut self, interface_type: ftdi_interface) {
+        debug!("set interface type \'{:?}\' to ftdi context", interface_type);
+        match interface_type {
+            ftdi_interface::INTERFACE_ANY | ftdi_interface::INTERFACE_A => {
+                self.interface = 0;
+                self.index     = ftdi_interface::INTERFACE_A.into();
+                self.in_ep     = 0x02;
+                self.out_ep    = 0x81;
+            }
+            ftdi_interface::INTERFACE_B => {
+                self.interface = 1;
+                self.index     = ftdi_interface::INTERFACE_B.into();
+                self.in_ep     = 0x04;
+                self.out_ep    = 0x83;
+            }
+            ftdi_interface::INTERFACE_C => {
+                self.interface = 2;
+                self.index     = ftdi_interface::INTERFACE_C.into();
+                self.in_ep     = 0x06;
+                self.out_ep    = 0x85;
+            }
+            ftdi_interface::INTERFACE_D => {
+                self.interface = 3;
+                self.index     = ftdi_interface::INTERFACE_D.into();
+                self.in_ep     = 0x08;
+                self.out_ep    = 0x87;
+            }
+        }
+        self.bitbang_mode = 1; /* when bitbang is enabled this holds the number of the mode  */
     }
 }
 

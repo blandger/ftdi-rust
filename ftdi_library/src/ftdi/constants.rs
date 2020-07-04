@@ -119,7 +119,7 @@ impl From<u8> for ftdi_mpsse_mode {
 }
 
 /// Port interface for chips with multiple interfaces
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Debug)]
 #[repr(u8)]
 pub enum ftdi_interface {
     INTERFACE_ANY = 0,
@@ -132,6 +132,12 @@ impl From<u8> for ftdi_interface {
     #[inline]
     fn from(b: u8) -> ftdi_interface {
         unsafe { transmute(b) }
+    }
+}
+impl Into<u8> for ftdi_interface {
+    #[inline]
+    fn into(self) -> u8 {
+        self as u8
     }
 }
 
