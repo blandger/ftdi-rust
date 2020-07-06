@@ -17,3 +17,4 @@ bytes = "0.5.4"
 snafu = "0.6.8"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 #log4rs = "0.12"
+linuxver = "0.1.0"

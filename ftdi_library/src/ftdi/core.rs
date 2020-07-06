@@ -4,7 +4,6 @@
 #![allow(unused_imports)]
 
 use libusb_sys as ffi;
-use libc;
 use libc::{c_int,c_uchar};
 use crate::ftdi::constants::{*};
 use crate::ftdi::eeprom::ftdi_eeprom;
@@ -14,6 +13,7 @@ use std::io;
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, error};
 use std::mem::MaybeUninit;
+use linuxver::version;
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -90,7 +90,8 @@ impl ftdi_context {
             ffi::LIBUSB_ERROR_INTERRUPTED   => FtdiError::UsbInit{code: -10, message: "system call interrupted".to_string()},
             ffi::LIBUSB_ERROR_NO_MEM        => FtdiError::UsbInit{code: -11, message: "insufficient memory".to_string()},
             ffi::LIBUSB_ERROR_NOT_SUPPORTED => FtdiError::UsbInit{code: -12, message: "operation not supported".to_string()},
-            ffi::LIBUSB_ERROR_OTHER | _     => FtdiError::UsbInit{code: -99, message: "other error".to_string()},
+            ffi::LIBUSB_ERROR_OTHER         => FtdiError::UsbInit{code: -99, message: "other error".to_string()},
+            _                               => FtdiError::UsbInit{code: -1000, message: "unknown error".to_string()},
         }
     }
 
@@ -182,7 +183,7 @@ impl ftdi_context {
                 readbuffer_offset: 0,
                 readbuffer_remaining: 0,
                 readbuffer_chunksize: 0,
-                writebuffer_chunksize: 4096,
+                writebuffer_chunksize: READ_BUFFER_CHUNKSIZE,
                 max_packet_size: 0,
                 interface: 0,
                 index: 0,
@@ -227,6 +228,37 @@ impl ftdi_context {
         }
         self.bitbang_mode = 1; /* when bitbang is enabled this holds the number of the mode  */
     }
+
+    pub  fn ftdi_read_data_set_chunksize(&mut self) -> u32 {
+        self.readbuffer_offset = 0;
+        self.readbuffer_remaining = 0;
+        self.readbuffer_chunksize = self.check_return_size();
+        self.readbuffer_chunksize
+    }
+
+    /// We can't set readbuffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
+    /// which is defined in libusb-1.0.  Otherwise, each USB read request will
+    /// be divided into multiple URBs.  This will cause issues on Linux kernel
+    /// older than 2.6.32.
+    #[cfg(target_os = "linux")]
+    fn check_return_size(&self) -> u32 {
+        let linux_kernel_version = version();
+        match linux_kernel_version {
+            Ok(version) if (version.major <= 2 && version.minor <= 6 && version.patch <= 32 ) => {
+                READ_BUFFER_CHUNKSIZE_LINUX_LOW_KERNEL
+            }
+            _ => {
+                READ_BUFFER_CHUNKSIZE
+            }
+        }
+    }
+
+    // And this function only gets compiled if the target OS is *not* linux
+    #[cfg(not(target_os = "linux"))]
+    fn check_return_size() -> u32 {
+        READ_BUFFER_CHUNKSIZE
+    }
+
 }
 
 impl Drop for ftdi_context {
@@ -324,12 +356,25 @@ type FTDIProgressInfo = progress;
 /// micro: Currently unused, ight get used for hotfixes.
 /// version_str: Version as (static) string
 /// snapshot_str: Git snapshot version if known. Otherwise "unknown" or empty string.
-#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 #[repr(C)]
 pub struct ftdi_version_info {
-    pub major: i32,
-    pub minor: i32,
-    pub micro: i32,
-    pub version_str: *const char,
-    pub snapshot_str: *const char,
+    pub major: u8,
+    pub minor: u8,
+    pub micro: u8,
+    pub version_str: String,
+    pub snapshot_str: String,
+}
+
+impl ftdi_version_info {
+
+    pub fn ftdi_get_library_version() -> ftdi_version_info  {
+        ftdi_version_info {
+            major: FTDI_MAJOR_VERSION,
+            minor: FTDI_MINOR_VERSION,
+            micro: FTDI_MICRO_VERSION,
+            version_str: FTDI_VERSION_STRING.to_string(),
+            snapshot_str: FTDI_SNAPSHOT_VERSION.to_string()
+        }
+    }
 }

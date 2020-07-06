@@ -4,8 +4,11 @@
 
 use libusb_sys as ffi;
 
-// Heavy stick to translate between opcode types
-use std::mem::transmute;
+pub const FTDI_MAJOR_VERSION: u8 = 1;
+pub const FTDI_MINOR_VERSION: u8 = 5;
+pub const FTDI_MICRO_VERSION: u8 = 0;
+pub const FTDI_VERSION_STRING: &str = "1.5rc1";
+pub const FTDI_SNAPSHOT_VERSION: &str = "v1.5rc1";
 
 /// FTDI chip type
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -21,9 +24,20 @@ pub enum ftdi_chip_type {
     TYPE_230X = 7,
 }
 impl From<u8> for ftdi_chip_type {
-    #[inline]
-    fn from(b: u8) -> ftdi_chip_type {
-        unsafe { transmute(b) }
+    // #[inline]
+    fn from(value: u8) -> ftdi_chip_type {
+        // unsafe { transmute(value as u8) }
+        match value {
+            0 => ftdi_chip_type::TYPE_AM,
+            1 => ftdi_chip_type::TYPE_BM,
+            2 => ftdi_chip_type::TYPE_2232C,
+            3 => ftdi_chip_type::TYPE_R,
+            4 => ftdi_chip_type::TYPE_2232H,
+            5 => ftdi_chip_type::TYPE_4232H,
+            6 => ftdi_chip_type::TYPE_232H,
+            7 => ftdi_chip_type::TYPE_230X,
+            _ => panic!("ftdi_chip_type is unknown for value = {}", value),
+        }
     }
 }
 
@@ -38,9 +52,15 @@ pub enum ftdi_parity_type {
     SPACE = 4
 }
 impl From<u8> for ftdi_parity_type {
-    #[inline]
-    fn from(b: u8) -> ftdi_parity_type {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_parity_type {
+        match value {
+            0 => ftdi_parity_type::NONE,
+            1 => ftdi_parity_type::ODD,
+            2 => ftdi_parity_type::EVEN,
+            3 => ftdi_parity_type::MARK,
+            4 => ftdi_parity_type::SPACE,
+            _ => panic!("ftdi_parity_type is unknown for value = {}", value),
+        }
     }
 }
 
@@ -53,9 +73,13 @@ pub enum ftdi_stopbits_type {
     STOP_BIT_2 = 2
 }
 impl From<u8> for ftdi_stopbits_type {
-    #[inline]
-    fn from(b: u8) -> ftdi_stopbits_type {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_stopbits_type {
+        match value {
+            0 => ftdi_stopbits_type::STOP_BIT_1,
+            1 => ftdi_stopbits_type::STOP_BIT_15,
+            2 => ftdi_stopbits_type::STOP_BIT_2,
+            _ => panic!("ftdi_stopbits_type is unknown for value = {}", value),
+        }
     }
 }
 
@@ -67,9 +91,12 @@ pub enum ftdi_bits_type {
     BITS_8 = 8
 }
 impl From<u8> for ftdi_bits_type {
-    #[inline]
-    fn from(b: u8) -> ftdi_bits_type {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_bits_type {
+        match value {
+            7 => ftdi_bits_type::BITS_7,
+            8 => ftdi_bits_type::BITS_8,
+            _ => panic!("ftdi_bits_type is unknown for value = {}", value),
+        }
     }
 }
 
@@ -81,9 +108,12 @@ pub enum ftdi_break_type {
     BREAK_ON = 1
 }
 impl From<u8> for ftdi_break_type {
-    #[inline]
-    fn from(b: u8) -> ftdi_break_type {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_break_type {
+        match value {
+            0 => ftdi_break_type::BREAK_OFF,
+            1 => ftdi_break_type::BREAK_ON,
+            _ => panic!("ftdi_break_type is unknown for value = {}", value),
+        }
     }
 }
 
@@ -112,9 +142,19 @@ pub enum ftdi_mpsse_mode {
     BITMODE_FT1284 = 0x80,
 }
 impl From<u8> for ftdi_mpsse_mode {
-    #[inline]
-    fn from(b: u8) -> ftdi_mpsse_mode {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_mpsse_mode {
+        match value {
+            0 => ftdi_mpsse_mode::BITMODE_RESET,
+            1 => ftdi_mpsse_mode::BITMODE_BITBANG,
+            2 => ftdi_mpsse_mode::BITMODE_MPSSE,
+            4 => ftdi_mpsse_mode::BITMODE_SYNCBB,
+            8 => ftdi_mpsse_mode::BITMODE_MCU,
+            10 => ftdi_mpsse_mode::BITMODE_OPTO,
+            20 => ftdi_mpsse_mode::BITMODE_CBUS,
+            40 => ftdi_mpsse_mode::BITMODE_SYNCFF,
+            80 => ftdi_mpsse_mode::BITMODE_FT1284,
+            _ => panic!("ftdi_mpsse_mode is unknown for value = {}", value),
+        }
     }
 }
 
@@ -129,9 +169,15 @@ pub enum ftdi_interface {
     INTERFACE_D = 4
 }
 impl From<u8> for ftdi_interface {
-    #[inline]
-    fn from(b: u8) -> ftdi_interface {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_interface {
+        match value {
+            0 => ftdi_interface::INTERFACE_ANY,
+            1 => ftdi_interface::INTERFACE_A,
+            2 => ftdi_interface::INTERFACE_B,
+            3 => ftdi_interface::INTERFACE_C,
+            4 => ftdi_interface::INTERFACE_D,
+            _ => panic!("ftdi_interface is unknown for value = {}", value),
+        }
     }
 }
 impl Into<u8> for ftdi_interface {
@@ -150,11 +196,24 @@ pub enum ftdi_module_detach_mode {
     AUTO_DETACH_REATACH_SIO_MODULE = 2
 }
 impl From<u8> for ftdi_module_detach_mode {
-    #[inline]
-    fn from(b: u8) -> ftdi_module_detach_mode {
-        unsafe { transmute(b) }
+    fn from(value: u8) -> ftdi_module_detach_mode {
+        match value {
+            0 => ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
+            1 => ftdi_module_detach_mode::DONT_DETACH_SIO_MODULE,
+            2 => ftdi_module_detach_mode::AUTO_DETACH_REATACH_SIO_MODULE,
+            _ => panic!("ftdi_module_detach_mode is unknown for value = {}", value),
+        }
     }
 }
+
+// #[cfg(any(target_os = "windows", target_os = "macos"))]
+pub const READ_BUFFER_CHUNKSIZE: u32 = 4096;
+/// We can't set readbuffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
+/// which is defined in libusb-1.0.  Otherwise, each USB read request will
+/// be divided into multiple URBs.  This will cause issues on Linux kernel
+/// older than 2.6.32.
+#[cfg(target_os = "linux")]
+pub const READ_BUFFER_CHUNKSIZE_LINUX_LOW_KERNEL: u32 = 16384;
 
 /* Shifting commands IN MPSSE Mode*/
 /// Write TDI/DO on negative TCK/SK edge
@@ -268,10 +327,12 @@ pub const SIO_XON_XOFF_HS: u8 = (0x4 << 8) as u8;
 
 pub const SIO_SET_DTR_MASK: u8 = 0x1;
 pub const SIO_SET_DTR_HIGH: u8 = (1 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u8;
-pub const SIO_SET_DTR_LOW: u8 = (0 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u8;
+// pub const SIO_SET_DTR_LOW: u8 = (0 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u8;
+pub const SIO_SET_DTR_LOW: u8 = ((SIO_SET_RTS_MASK << 8) as u8) as u8;
 pub const SIO_SET_RTS_MASK: u8 = 0x2;
 pub const SIO_SET_RTS_HIGH: u8 = (2 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
-pub const SIO_SET_RTS_LOW: u8 = (0 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
+// pub const SIO_SET_RTS_LOW: u8 = (0 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
+pub const SIO_SET_RTS_LOW: u8 = ((SIO_SET_RTS_MASK << 8) as u8) as u8;
 
 pub const FT1284_CLK_IDLE_STATE: u8 = 0x01;
 /// DS_FT232H 1.3 amd ftd2xx.h 1.0.4 disagree here
