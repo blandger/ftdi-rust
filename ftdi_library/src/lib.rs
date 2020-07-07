@@ -6,6 +6,7 @@ mod tests {
         ftdi_chip_type, ftdi_parity_type, ftdi_stopbits_type, ftdi_bits_type,
         ftdi_break_type, ftdi_mpsse_mode, ftdi_interface, ftdi_module_detach_mode
     };
+    use crate::ftdi::eeprom::{ftdi_eeprom_value};
 
     #[test]
     fn ftdi_chip_type_conversion() {
@@ -114,5 +115,18 @@ mod tests {
     #[should_panic(expected = "ftdi_module_detach_mode is unknown for value = 12")]
     fn ftdi_module_detach_mode_conversion_fail() {
         ftdi_module_detach_mode::from(12 as u8);
+    }
+
+    #[test]
+    fn fftdi_eeprom_value_conversion() {
+        assert_eq!(ftdi_eeprom_value::VENDOR_ID,  ftdi_eeprom_value::from(0 as u8));
+        assert_eq!(ftdi_eeprom_value::PRODUCT_ID, ftdi_eeprom_value::from(1 as u8));
+        assert_eq!(ftdi_eeprom_value::HIGH_CURRENT_A, ftdi_eeprom_value::from(28 as u8));
+        assert_eq!(ftdi_eeprom_value::USER_DATA_ADDR, ftdi_eeprom_value::from(57 as u8));
+    }
+    #[test]
+    #[should_panic(expected = "ftdi_eeprom_value is unknown for value = 200")]
+    fn ftdi_eeprom_value_conversion_fail() {
+        ftdi_eeprom_value::from(200 as u8);
     }
 }

@@ -197,7 +197,6 @@ impl ftdi_context {
         )
     }
 
-    // fn ftdi_set_interface(context: &mut ftdi_context, interface_type: ftdi_interface) {
     pub fn set_interface_type(&mut self, interface_type: ftdi_interface) {
         debug!("set interface type \'{:?}\' to ftdi context", interface_type);
         match interface_type {

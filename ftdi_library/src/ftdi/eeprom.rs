@@ -122,7 +122,9 @@ pub struct ftdi_eeprom {
 
 /// List all handled EEPROM values.
 // Append future new values only at the end to provide API/ABI stability
-enum ftdi_eeprom_value {
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ftdi_eeprom_value {
     VENDOR_ID          = 0,
     PRODUCT_ID         = 1,
     SELF_POWERED       = 2,
@@ -181,4 +183,69 @@ enum ftdi_eeprom_value {
     RELEASE_NUMBER     = 55,
     EXTERNAL_OSCILLATOR= 56,
     USER_DATA_ADDR     = 57,
+}
+impl From<u8> for ftdi_eeprom_value {
+    fn from(value: u8) -> ftdi_eeprom_value {
+        match value {
+            0 => ftdi_eeprom_value::VENDOR_ID,
+            1 => ftdi_eeprom_value::PRODUCT_ID,
+            2 => ftdi_eeprom_value::SELF_POWERED,
+            3 => ftdi_eeprom_value::REMOTE_WAKEUP,
+            4 => ftdi_eeprom_value::IS_NOT_PNP,
+            5 => ftdi_eeprom_value::SUSPEND_DBUS7,
+            6 => ftdi_eeprom_value::IN_IS_ISOCHRONOUS,
+            7 => ftdi_eeprom_value::OUT_IS_ISOCHRONOUS,
+            8 => ftdi_eeprom_value::SUSPEND_PULL_DOWNS,
+            9 => ftdi_eeprom_value::USE_SERIAL,
+            10 => ftdi_eeprom_value::USB_VERSION,
+            11 => ftdi_eeprom_value::USE_USB_VERSION,
+            12 => ftdi_eeprom_value::MAX_POWER,
+            13 => ftdi_eeprom_value::CHANNEL_A_TYPE,
+            14 => ftdi_eeprom_value::CHANNEL_B_TYPE,
+            15 => ftdi_eeprom_value::CHANNEL_A_DRIVER,
+            16 => ftdi_eeprom_value::CHANNEL_B_DRIVER,
+            17 => ftdi_eeprom_value::CBUS_FUNCTION_0,
+            18 => ftdi_eeprom_value::CBUS_FUNCTION_1,
+            19 => ftdi_eeprom_value::CBUS_FUNCTION_2,
+            20 => ftdi_eeprom_value::CBUS_FUNCTION_3,
+            21 => ftdi_eeprom_value::CBUS_FUNCTION_4,
+            22 => ftdi_eeprom_value::CBUS_FUNCTION_5,
+            23 => ftdi_eeprom_value::CBUS_FUNCTION_6,
+            24 => ftdi_eeprom_value::CBUS_FUNCTION_7,
+            25 => ftdi_eeprom_value::CBUS_FUNCTION_8,
+            26 => ftdi_eeprom_value::CBUS_FUNCTION_9,
+            27 => ftdi_eeprom_value::HIGH_CURRENT,
+            28 => ftdi_eeprom_value::HIGH_CURRENT_A,
+            29 => ftdi_eeprom_value::HIGH_CURRENT_B,
+            30 => ftdi_eeprom_value::INVERT,
+            31 => ftdi_eeprom_value::GROUP0_DRIVE,
+            32 => ftdi_eeprom_value::GROUP0_SCHMITT,
+            33 => ftdi_eeprom_value::GROUP0_SLEW,
+            34 => ftdi_eeprom_value::GROUP1_DRIVE,
+            35 => ftdi_eeprom_value::GROUP1_SCHMITT,
+            36 => ftdi_eeprom_value::GROUP1_SLEW,
+            37 => ftdi_eeprom_value::GROUP2_DRIVE,
+            38 => ftdi_eeprom_value::GROUP2_SCHMITT,
+            39 => ftdi_eeprom_value::GROUP2_SLEW,
+            40 => ftdi_eeprom_value::GROUP3_DRIVE,
+            41 => ftdi_eeprom_value::GROUP3_SCHMITT,
+            42 => ftdi_eeprom_value::GROUP3_SLEW,
+            43 => ftdi_eeprom_value::CHIP_SIZE,
+            44 => ftdi_eeprom_value::CHIP_TYPE,
+            45 => ftdi_eeprom_value::POWER_SAVE,
+            46 => ftdi_eeprom_value::CLOCK_POLARITY,
+            47 => ftdi_eeprom_value::DATA_ORDER,
+            48 => ftdi_eeprom_value::FLOW_CONTROL,
+            49 => ftdi_eeprom_value::CHANNEL_C_DRIVER,
+            50 => ftdi_eeprom_value::CHANNEL_D_DRIVER,
+            51 => ftdi_eeprom_value::CHANNEL_A_RS485,
+            52 => ftdi_eeprom_value::CHANNEL_B_RS485,
+            53 => ftdi_eeprom_value::CHANNEL_C_RS485,
+            54 => ftdi_eeprom_value::CHANNEL_D_RS485,
+            55 => ftdi_eeprom_value::RELEASE_NUMBER,
+            56 => ftdi_eeprom_value::EXTERNAL_OSCILLATOR,
+            57 => ftdi_eeprom_value::USER_DATA_ADDR,
+            _ => panic!("ftdi_eeprom_value is unknown for value = {}", value),
+        }
+    }
 }
