@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use ::ftdi_library::ftdi::core::*;
+use ::ftdi_library::ftdi::core::{ftdi_context, ftdi_device_list};
 use ::ftdi_library::ftdi::constants::ftdi_interface;
 use log::{info, error};
 use log4rs;
@@ -12,9 +12,18 @@ fn main() {
         Ok(mut ftdi_context) => {
             info!("ftdi context in created OK");
             ftdi_context.set_interface_type(ftdi_interface::INTERFACE_ANY);
+
+            match ftdi_device_list::new(ftdi_context) {
+                Ok(list) => {
+                    info!("ftdi device list is {} OK !", list.ftdi_device_list.len());
+                }
+                Err(error) => {
+                    error!("There is get Usb Device List {}", error);
+                }
+            }
         }
         Err(err) => {
-            error!("There is {}", err)
+            error!("There is Init {}", err)
         }
     }
 

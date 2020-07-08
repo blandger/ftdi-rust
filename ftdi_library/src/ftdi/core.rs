@@ -8,11 +8,9 @@ use libc::{c_int,c_uchar};
 use crate::ftdi::constants::{*};
 use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
-use std::mem;
-use std::io;
+use std::{mem::{MaybeUninit}, slice, io};
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, error};
-use std::mem::MaybeUninit;
 use linuxver::version;
 
 /// brief Main context structure for all libftdi functions.
@@ -97,17 +95,17 @@ impl ftdi_context {
 
     pub fn new() -> Result<Self> {
         debug!("start ftdi context creation...");
-        let mut context: *mut ffi::libusb_context = unsafe { mem::MaybeUninit::uninit().assume_init() };
+        let mut context: *mut ffi::libusb_context = unsafe { MaybeUninit::uninit().assume_init() };
         debug!("ftdi context before init...");
         match unsafe { ffi::libusb_init(&mut context) } {
             0 => {
                 debug!("ftdi context initialized - OK!");
             },
-            e => {
+            sys_error => {
                 // Err(ftdi_context::get_error(e))
-                let error_enum = ftdi_context::get_usb_sys_init_error(e);
+                let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
                 error!("{}", error_enum);
-                // Err(error_enum)
+                return Err(error_enum);
             }
         };
 
@@ -304,9 +302,33 @@ pub struct ftdi_transfer_control {
 /// brief list of usb devices created by ftdi_usb_find_all()
 pub struct ftdi_device_list {
     /// pointer to next entry
-    // pub ftdi_device_list *next, // ???
-    /// pointer to libusb's usb_device
-    pub dev: *mut ffi::libusb_device,
+    pub ftdi_device_list: Vec<*mut ffi::libusb_device>, // ???
+    // pointer to libusb's usb_device
+    // pub dev: *mut ffi::libusb_device,
+}
+impl ftdi_device_list {
+    pub fn new(/*&mut self, */ftdi: ftdi_context) -> Result<Self> {
+        debug!("start ftdi device list creation...");
+        let mut device_list: *const *mut ffi::libusb_device = unsafe {
+            MaybeUninit::uninit().assume_init()
+        };
+        let devices_len = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx, &mut device_list) };
+        if devices_len < 0 {
+            let result = ftdi_context::get_usb_sys_init_error(devices_len as c_int);
+            error!("{}", result);
+            return Err(result);
+        }
+        debug!("found usb device quantity = {}", devices_len);
+        let sys_device_list = unsafe { slice::from_raw_parts(device_list, devices_len as usize) };
+        let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
+        for dev in sys_device_list {
+            new_device_list.push(*dev);
+            // display_device(dev);
+        }
+        let list = ftdi_device_list{ftdi_device_list: new_device_list};
+        debug!("stored usb device quantity = {}", devices_len);
+        Ok(list)
+    }
 }
 
 enum ftdi_cbus_func {
