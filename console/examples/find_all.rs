@@ -13,7 +13,8 @@ fn main() {
             info!("ftdi context in created OK");
             ftdi_context.set_interface_type(ftdi_interface::INTERFACE_ANY);
 
-            match ftdi_device_list::new(ftdi_context) {
+            // match ftdi_context.ftdi_usb_open_desc_index(0x0403, 0x6001, None, None, 0) {
+            match ftdi_context.ftdi_usb_open_desc_index(0, 0, None, None, 0) {
                 Ok(list) => {
                     info!("ftdi device list is {} OK !", list.ftdi_device_list.len());
                 }
