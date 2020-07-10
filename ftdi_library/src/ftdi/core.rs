@@ -10,7 +10,7 @@ use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
 use std::{mem::{MaybeUninit}, slice, io, ptr};
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
-use log::{debug, info, error};
+use log::{debug, info, warn, error};
 use linuxver::version;
 
 /// brief Main context structure for all libftdi functions.
@@ -94,7 +94,7 @@ impl ftdi_context {
     }
 
     pub fn new() -> Result<Self> {
-        debug!("start ftdi context creation...");
+        debug!("start \'new\' ftdi context creation...");
         let mut context: *mut ffi::libusb_context = unsafe { MaybeUninit::uninit().assume_init() };
         debug!("ftdi context before init...");
         match unsafe { ffi::libusb_init(&mut context) } {
@@ -256,9 +256,11 @@ impl ftdi_context {
         READ_BUFFER_CHUNKSIZE
     }
 
-    pub fn ftdi_usb_open_desc_index(&self, vendor: u16, product: u16,
-                                    description: Option<&str>, serial: Option<&str>, index: usize) -> Result<ftdi_device_list> {
-        debug!("start ftdi_usb_open_desc_index...");
+    pub fn ftdi_usb_open_desc_index(&mut self, vendor: u16, product: u16,
+                                    description: Option<&str>,
+                                    serial: Option<&str>,
+                                    index: usize) -> Result<ftdi_device_list> {
+        debug!("start \'ftdi_usb_open_desc_index\' ...");
         let mut device_list: *const *mut ffi::libusb_device = unsafe {
             MaybeUninit::uninit().assume_init()
         };
@@ -268,38 +270,41 @@ impl ftdi_context {
             error!("{}", result);
             return Err(result);
         }
-        debug!("found usb device quantity = {}", devices_len);
+        debug!("found total usb device(s) quantity = [{}]", devices_len);
         let sys_device_list = unsafe { slice::from_raw_parts(device_list, devices_len as usize) };
         let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
+        let mut usb_dev_index = 0;
         for dev in sys_device_list {
             new_device_list.push(*dev);
-
+            let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
             let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
                 0 => {
                     true
-                }
+                },
                 err => {
                     error!("{}", FtdiError::UsbInit{code: err, message: "libusb_get_device_descriptor() failed".to_string()});
                     false
-                }
+                },
             };
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
             if has_descriptor {
-                debug_device_descriptor(handle, &descriptor);
-            }
-            if has_descriptor {
-                info!("USB ID : {:04x}:{:04x}", descriptor.idVendor, descriptor.idProduct);
-                if vendor > 0 && product > 0 && descriptor.idVendor == vendor && descriptor.idProduct == product {
+                info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
+                print_debug_device_descriptor(handle, &descriptor, speed);
+                // extract all usb devices OR only specified by vendor and product ids
+                if vendor >= 0 && product >= 0 && descriptor.idVendor == vendor && descriptor.idProduct == product {
                     if unsafe { ffi::libusb_open(*dev, &mut handle) } < 0 {
-                        info!("Couldn't open device, some information will be missing");
+                        warn!("Couldn't open device [{:?}], some information will be missing", usb_dev_index);
                         handle = ptr::null_mut();
+                    } else {
+                        self.usb_dev = Some(handle);
                     }
                 }
+                usb_dev_index += 1;
             }
         }
         let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
-        debug!("stored usb device quantity = {}", devices_len);
+        debug!("stored usb device quantity = [{}]", devices_len);
         Ok(list)
     }
 
@@ -382,7 +387,6 @@ impl ftdi_device_list {
 impl Drop for ftdi_device_list {
     fn drop(&mut self) {
         debug!("cleaning up ftdi_device_list...");
-        // let device_list = self.system_device_list;
         if self.system_device_list != None {
             unsafe { ffi::libusb_free_device_list(self.system_device_list.unwrap(), 1) };
             self.ftdi_device_list.clear();
@@ -392,8 +396,10 @@ impl Drop for ftdi_device_list {
 }
 
 
-fn debug_device_descriptor(handle: *mut ffi::libusb_device_handle, descriptor: &ffi::libusb_device_descriptor) {
-    debug!("Device Descriptor:");
+fn print_debug_device_descriptor(handle: *mut ffi::libusb_device_handle,
+                                 descriptor: &ffi::libusb_device_descriptor,
+                                 speed: c_int) {
+    debug!("======= Device Descriptor: =======");
     debug!("  bLength: {:16}", descriptor.bLength);
     debug!("  bDescriptorType: {:8} {}", descriptor.bDescriptorType, get_descriptor_type(descriptor.bDescriptorType));
     debug!("  bcdUSB:            {:#06x} {}", descriptor.bcdUSB, get_bcd_version(descriptor.bcdUSB));
@@ -408,6 +414,7 @@ fn debug_device_descriptor(handle: *mut ffi::libusb_device_handle, descriptor: &
     debug!("  iProduct: {:15} {}", descriptor.iProduct, get_string_descriptor(handle, descriptor.iProduct).unwrap_or(String::new()));
     debug!("  iSerialNumber: {:10} {}", descriptor.iSerialNumber, get_string_descriptor(handle, descriptor.iSerialNumber).unwrap_or(String::new()));
     debug!("  bNumConfigurations: {:5}", descriptor.bNumConfigurations);
+    debug!("  Speed: {:#8}\n", get_device_speed(speed));
 }
 
 fn get_descriptor_type(desc_type: u8) -> &'static str {
@@ -487,6 +494,16 @@ fn get_string_descriptor(handle: *mut ffi::libusb_device_handle, desc_index: u8)
     }
     else {
         None
+    }
+}
+
+fn get_device_speed(speed: c_int) -> &'static str {
+    match speed {
+        ffi::LIBUSB_SPEED_SUPER       => "5000 Mbps",
+        ffi::LIBUSB_SPEED_HIGH        => " 480 Mbps",
+        ffi::LIBUSB_SPEED_FULL        => "  12 Mbps",
+        ffi::LIBUSB_SPEED_LOW         => " 1.5 Mbps",
+        ffi::LIBUSB_SPEED_UNKNOWN | _ => "(unknown)"
     }
 }
 

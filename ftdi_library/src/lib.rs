@@ -7,6 +7,7 @@ mod tests {
         ftdi_break_type, ftdi_mpsse_mode, ftdi_interface, ftdi_module_detach_mode
     };
     use crate::ftdi::eeprom::{ftdi_eeprom_value};
+    use crate::ftdi::core::ftdi_context;
 
     #[test]
     fn ftdi_chip_type_conversion() {
@@ -128,5 +129,16 @@ mod tests {
     #[should_panic(expected = "ftdi_eeprom_value is unknown for value = 200")]
     fn ftdi_eeprom_value_conversion_fail() {
         ftdi_eeprom_value::from(200 as u8);
+    }
+
+    #[test]
+    fn create_new_ftdi_context() {
+        let created_ftdi_context_result = ftdi_context::new();
+        match created_ftdi_context_result {
+            Ok(_) => {/* all is fine */}
+            _ => {
+                assert!(false); // error
+            }
+        }
     }
 }
