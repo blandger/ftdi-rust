@@ -12,6 +12,17 @@ fn main() {
         Ok(mut ftdi_context) => {
             info!("ftdi context in created OK");
             ftdi_context.set_interface_type(ftdi_interface::INTERFACE_ANY);
+
+/*            // match ftdi_context.ftdi_usb_open_desc_index(0x0403, 0x6001, None, None, 0) {
+            match ftdi_context.ftdi_usb_open_desc_index(0, 0, None, None, 0) {
+                Ok(ftdi_context) => {
+                    info!("ftdi device list is {} OK !", ftdi_context.);
+                }
+                Err(error) => {
+                    error!("There is get Usb Device List {}", error);
+                }
+            }
+*/
         }
         Err(err) => {
             error!("There is {}", err)

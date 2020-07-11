@@ -7,7 +7,7 @@ mod tests {
         ftdi_break_type, ftdi_mpsse_mode, ftdi_interface, ftdi_module_detach_mode
     };
     use crate::ftdi::eeprom::{ftdi_eeprom_value};
-    use crate::ftdi::core::ftdi_context;
+    use crate::ftdi::core::{ftdi_context, ftdi_device_list};
 
     #[test]
     fn ftdi_chip_type_conversion() {
@@ -136,6 +136,17 @@ mod tests {
         let created_ftdi_context_result = ftdi_context::new();
         match created_ftdi_context_result {
             Ok(_) => {/* all is fine */}
+            _ => {
+                assert!(false); // error
+            }
+        }
+    }
+
+    #[test]
+    fn ftdi_usb_find_all() {
+        let ftdi_context = ftdi_context::new();
+        match ftdi_device_list::ftdi_usb_find_all(&ftdi_context.unwrap(), 0, 0) {
+            Ok(_) => {}
             _ => {
                 assert!(false); // error
             }

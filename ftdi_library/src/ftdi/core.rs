@@ -171,7 +171,7 @@ impl ftdi_context {
         Ok(
             ftdi_context {
                 usb_ctx: context,
-                usb_dev: None,
+                usb_dev: None, // usb device to be assigned if it's found
                 usb_read_timeout: 5000,
                 usb_write_timeout: 5000,
                 r#type: ftdi_chip_type::TYPE_BM,
@@ -259,31 +259,24 @@ impl ftdi_context {
     pub fn ftdi_usb_open_desc_index(&mut self, vendor: u16, product: u16,
                                     description: Option<&str>,
                                     serial: Option<&str>,
-                                    index: usize) -> Result<ftdi_device_list> {
+                                    index: usize) -> Result<&Self> {
         debug!("start \'ftdi_usb_open_desc_index\' ...");
-        let mut device_list: *const *mut ffi::libusb_device = unsafe {
-            MaybeUninit::uninit().assume_init()
-        };
-        let devices_len = unsafe { ffi::libusb_get_device_list(self.usb_ctx, &mut device_list) };
-        if devices_len < 0 {
-            let result = ftdi_context::get_usb_sys_init_error(devices_len as c_int);
-            error!("{}", result);
-            return Err(result);
-        }
-        debug!("found total usb device(s) quantity = [{}]", devices_len);
-        let sys_device_list = unsafe { slice::from_raw_parts(device_list, devices_len as usize) };
-        let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
+        let mut device_list = ftdi_device_list::new(self)?;
+
+        let sys_device_list = unsafe { slice::from_raw_parts(
+            device_list.system_device_list.unwrap(), device_list.number_found_devices) };
+        // let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
         let mut usb_dev_index = 0;
         for dev in sys_device_list {
-            new_device_list.push(*dev);
+            // new_device_list.push(*dev);
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
             let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
                 0 => {
                     true
                 },
-                err => {
-                    error!("{}", FtdiError::UsbInit{code: err, message: "libusb_get_device_descriptor() failed".to_string()});
+                _err => {
+                    error!("{}", FtdiError::UsbInit{code: -13, message: "libusb_get_device_descriptor() failed".to_string()});
                     false
                 },
             };
@@ -297,15 +290,16 @@ impl ftdi_context {
                         warn!("Couldn't open device [{:?}], some information will be missing", usb_dev_index);
                         handle = ptr::null_mut();
                     } else {
-                        self.usb_dev = Some(handle);
+                        debug!("found FTDI usb device by index = [{}]", usb_dev_index);
+                        self.usb_dev = Some(handle); // assign found FTDI device
                     }
                 }
                 usb_dev_index += 1;
             }
         }
-        let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
-        debug!("stored usb device quantity = [{}]", devices_len);
-        Ok(list)
+        // let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
+        debug!("stored usb device quantity = [{}]", device_list.number_found_devices);
+        Ok(self)
     }
 
 }
@@ -317,6 +311,7 @@ impl Drop for ftdi_context {
             Some(usb_device) => {
                 debug!("closing ftdi \'usb device handler\' context...");
                 unsafe {ffi::libusb_close(usb_device);}
+                self.usb_dev = None;
             }
             None => {
                 debug!("NO ftdi \'usb device handler\' to close...");
@@ -336,6 +331,11 @@ pub enum FtdiError {
     UsbInit {
         code: i32,
         message: String,
+    },
+    #[snafu(display("USB SYS COMMAND: {} - {}", code, message))]
+    UsbCommandError {
+        code: i32,
+        message: String,
     }
 }
 
@@ -353,45 +353,120 @@ pub struct ftdi_transfer_control {
 
 /// brief list of usb devices created by ftdi_usb_find_all()
 pub struct ftdi_device_list {
-    /// pointer to next entry
-    pub ftdi_device_list: Vec<*mut ffi::libusb_device>, // ???
-    // pointer to libusb's usb_device
-    // pub dev: *mut ffi::libusb_device,
+    /// Vector keeps all devices and all are freed later
+    pub ftdi_device_list: Vec<*mut ffi::libusb_device>,
+    /// found ans stored number of devices.
+    /// It equals to number of devices in vector
+    pub number_found_devices: usize,
+    /// pointer to libusb's usb_device
     pub system_device_list: Option<*const *mut ffi::libusb_device>,
 }
 impl ftdi_device_list {
-/*    pub fn new(ftdi: &ftdi_context) -> Result<Self> {
-        debug!("start ftdi device list creation...");
+    /// Creates usb device list for all available devices in system
+    pub fn new(ftdi: &ftdi_context) -> Result<Self> {
         let mut device_list: *const *mut ffi::libusb_device = unsafe {
             MaybeUninit::uninit().assume_init()
         };
         let devices_len = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx, &mut device_list) };
         if devices_len < 0 {
-            let result = ftdi_context::get_usb_sys_init_error(devices_len as c_int);
+            let result = FtdiError::UsbCommandError { code: -5, message: "libusb_get_device_list() failed".to_string() };
             error!("{}", result);
             return Err(result);
         }
-        debug!("found usb device quantity = {}", devices_len);
-        let sys_device_list = unsafe { slice::from_raw_parts(device_list, devices_len as usize) };
+        debug!("found total usb device(s) quantity = [{}]", devices_len);
+        let sys_device_list = unsafe { slice::from_raw_parts(
+            device_list, devices_len as usize) };
         let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
         for dev in sys_device_list {
-            new_device_list.push(*dev);
-            // display_device(dev);
+            new_device_list.push(*dev); // push any device
         }
-        let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
+        let list = ftdi_device_list{
+            ftdi_device_list: new_device_list,
+            number_found_devices: devices_len as usize,
+            system_device_list: Some(device_list)};
         debug!("stored usb device quantity = {}", devices_len);
         Ok(list)
     }
-*/
+
+    /// Finds all ftdi devices with given VID:PID on the usb bus. Creates a new
+    ///  ftdi_device_list which is deallocated automatically after use and going out of scope.
+    ///  With VID:PID 0:0, it searches for the default devices
+    ///  (0x403:0x6001, 0x403:0x6010, 0x403:0x6011, 0x403:0x6014, 0x403:0x6015)
+    //
+    ///   \param ftdi is ftdi_context
+    ///   devlist is stored in devices field 'ftdi_device_list' vector
+    ///   \param vendor Vendor ID to search for
+    ///   \param product Product ID to search for
+    pub fn ftdi_usb_find_all(ftdi: &ftdi_context, vendor: u16, product: u16) -> Result<Self> {
+        let mut device_list: *const *mut ffi::libusb_device = unsafe {
+            MaybeUninit::uninit().assume_init()
+        };
+        let devices_len = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx, &mut device_list) };
+        if devices_len < 0 {
+            let result = FtdiError::UsbCommandError { code: -5, message: "libusb_get_device_list() failed".to_string() };
+            error!("{}", result);
+            return Err(result);
+        }
+        debug!("found total usb device(s) quantity = [{}]", devices_len);
+        let sys_device_list = unsafe { slice::from_raw_parts(
+            device_list, devices_len as usize) };
+        let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
+        let mut usb_dev_index = 0;
+        for dev in sys_device_list {
+
+            let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
+            let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
+                0 => {
+                    true
+                },
+                err => {
+                    error!("{}", FtdiError::UsbCommandError{code: -6, message: "libusb_get_device_descriptor() failed".to_string()});
+                    false
+                },
+            };
+            let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
+            if has_descriptor {
+
+                // extract usb devices only specified by vendor and product ids
+                if ((vendor > 0 || product > 0) &&
+                    descriptor.idVendor == vendor && descriptor.idProduct == product) ||
+                    (!(vendor < 0 || product < 0) &&
+                        (descriptor.idVendor == 0x403) && (descriptor.idProduct == 0x6001 || descriptor.idProduct == 0x6010
+                        || descriptor.idProduct == 0x6011 || descriptor.idProduct == 0x6014
+                        || descriptor.idProduct == 0x6015)) {
+                    info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
+                    print_debug_device_descriptor(handle, &descriptor, speed);
+
+                    unsafe { ffi::libusb_ref_device(*dev) };
+                    new_device_list.push(*dev);
+
+                }
+                usb_dev_index += 1;
+            }
+
+        }
+        let list = ftdi_device_list{
+            ftdi_device_list: new_device_list,
+            number_found_devices: devices_len as usize,
+            system_device_list: None};
+        unsafe { ffi::libusb_free_device_list(device_list,1); };
+        debug!("stored usb device quantity = {}", devices_len);
+        Ok(list)
+    }
 }
 impl Drop for ftdi_device_list {
     fn drop(&mut self) {
         debug!("cleaning up ftdi_device_list...");
+        self.number_found_devices = 0;
+        for dev in &self.ftdi_device_list {
+            unsafe { ffi::libusb_unref_device(*dev); }
+        }
+        self.ftdi_device_list.clear();
         if self.system_device_list != None {
             unsafe { ffi::libusb_free_device_list(self.system_device_list.unwrap(), 1) };
-            self.ftdi_device_list.clear();
-            debug!("cleaned up ftdi_device_list - OK");
         }
+        debug!("cleaned up ftdi_device_list - OK");
     }
 }
 
@@ -475,7 +550,7 @@ fn get_class_type(class: u8) -> &'static str {
 }
 
 fn get_string_descriptor(handle: *mut ffi::libusb_device_handle, desc_index: u8) -> Option<String> {
-    if handle.is_null() || desc_index == 0{
+    if handle.is_null() || desc_index == 0 {
         return None
     }
 
