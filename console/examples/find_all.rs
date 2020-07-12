@@ -1,31 +1,25 @@
 #![allow(unused_imports)]
+use ::ftdi_library::ftdi::core::{FtdiError};
 use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
 use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
-use ::ftdi_library::ftdi::constants::ftdi_interface;
 use log::{info, error};
 use log4rs;
 
-fn main() {
-    log4rs::init_file("./log4rs.yaml", Default::default()).unwrap();
-    info!("booting up");
-    let created_ftdi_context_result = ftdi_context::new();
-    match created_ftdi_context_result {
-        Ok(mut ftdi_context) => {
-            info!("ftdi context in created OK");
-            ftdi_context.set_interface_type(ftdi_interface::INTERFACE_ANY);
-
-            match ftdi_device_list::ftdi_usb_find_all(&ftdi_context, 0, 0) {
-                Ok(list) => {
-                    //print list
-                }
-                Err(error) => {
-                    error!("There is get Usb Device List {}", error);
-                }
-            }
-        }
-        Err(err) => {
-            error!("There is Init {}", err)
-        }
+fn main() -> Result<(), FtdiError> {
+    match log4rs::init_file("log4rs.yaml", Default::default()) {
+        Ok(result) => println!("OK with log config = {:?}", result),
+        Err(error) => println!("Log config not found, {}", error),
     }
+    info!("booting up...");
+    let ftdi_context = ftdi_context::new()?;
+    info!("ftdi context in created - OK");
 
+    info!("start find all usb device(s)...");
+    let list = ftdi_device_list::ftdi_usb_find_all(&ftdi_context, 0, 0)?;
+    info!("Number of FTDI devices found: {} - OK", list.number_found_devices);
+    for (index, _device) in list.system_device_list.iter().enumerate() {
+        info!("Checking device: {}", index);
+        // let (manufacturer, description) = ftdi_usb_get_strings(&ftdi_context_result, &device);
+    }
+    Ok(())
 }
