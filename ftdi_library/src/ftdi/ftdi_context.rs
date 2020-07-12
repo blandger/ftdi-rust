@@ -22,8 +22,8 @@ use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descrip
 pub struct ftdi_context {
     /// USB specific
     /// libusb's context
-    // pub usb_ctx: *mut ffi::libusb_context,
-    pub usb_ctx: MaybeUninit<*mut ffi::libusb_context>,
+    pub usb_ctx: *mut ffi::libusb_context,
+    // pub usb_ctx: MaybeUninit<*mut ffi::libusb_context>,
     /// libusb's usb_dev_handle
     pub usb_dev: Option<*mut ffi::libusb_device_handle>,
     /// usb read timeout
@@ -99,12 +99,13 @@ impl ftdi_context {
 
     pub fn new() -> Result<Self> {
         debug!("start \'new\' ftdi context creation...");
-        let mut context: MaybeUninit<*mut ffi::libusb_context> = unsafe { MaybeUninit::uninit().assume_init() };
+        // let mut context: MaybeUninit<*mut ffi::libusb_context> = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut context: *mut ffi::libusb_context = unsafe { MaybeUninit::uninit().assume_init() };
         // let _: [MaybeUninit<bool>; 5] = unsafe {
         //     MaybeUninit::uninit().assume_init()
         // };
         debug!("ftdi context before init...");
-        match unsafe { ffi::libusb_init(context.as_mut_ptr()) } {
+        match unsafe { ffi::libusb_init(&mut context/*.as_mut_ptr()*/) } {
             0 => {
                 debug!("ftdi context initialized - OK!");
             },
@@ -257,6 +258,16 @@ impl ftdi_context {
         }
     }
 
+    pub fn ftdi_usb_open(&mut self, vendor: u16, product: u16) -> Result<&Self> {
+        ftdi_context::ftdi_usb_open_desc(self, vendor, product, None, None)
+    }
+
+    pub fn ftdi_usb_open_desc(&mut self, vendor: u16, product: u16,
+                              description: Option<&str>,
+                              serial: Option<&str>) -> Result<&Self> {
+        ftdi_context::ftdi_usb_open_desc_index(self, vendor, product, description, serial, 0)
+    }
+
     // And this function only gets compiled if the target OS is *not* linux
     #[cfg(not(target_os = "linux"))]
     fn check_return_size() -> u32 {
@@ -278,6 +289,8 @@ impl ftdi_context {
             // new_device_list.push(*dev);
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+            let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
+
             let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
                 0 => {
                     true
@@ -287,10 +300,9 @@ impl ftdi_context {
                     false
                 },
             };
-            let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
             if has_descriptor {
                 info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
-                print_debug_device_descriptor(handle, &descriptor, speed);
+                // print_debug_device_descriptor(handle, &descriptor, speed);
                 // extract all usb devices OR only specified by vendor and product ids
                 if vendor > 0 && product > 0 && descriptor.idVendor == vendor && descriptor.idProduct == product {
                     if unsafe { ffi::libusb_open(*dev, &mut handle) } < 0 {
@@ -298,10 +310,14 @@ impl ftdi_context {
                         // handle = ptr::null_mut();
                     } else {
                         debug!("found FTDI usb device by index = [{}]", usb_dev_index);
-                        self.usb_dev = Some(handle); // assign found FTDI device
+                        print_debug_device_descriptor(handle, &descriptor, speed);
+                        // self.usb_dev = Some(handle); // assign found FTDI device
                     }
                 }
                 usb_dev_index += 1;
+            }
+            if !handle.is_null() {
+                unsafe { ffi::libusb_close(handle) };
             }
         }
         // let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
@@ -317,6 +333,7 @@ impl Drop for ftdi_context {
         match self.usb_dev {
             Some(usb_device) => {
                 debug!("closing ftdi \'usb device handler\' context...");
+                unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
                 unsafe {ffi::libusb_close(usb_device);}
                 self.usb_dev = None;
             }
@@ -325,7 +342,8 @@ impl Drop for ftdi_context {
             }
         }
         debug!("before usb context exit...");
-        unsafe { ffi::libusb_exit(*self.usb_ctx.as_mut_ptr()) };
+        // unsafe { ffi::libusb_exit(*self.usb_ctx.as_mut_ptr()) };
+        unsafe { ffi::libusb_exit(self.usb_ctx) };
         debug!("closing ftdi context is DONE!");
     }
 }
