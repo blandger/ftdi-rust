@@ -7,7 +7,9 @@ mod tests {
         ftdi_break_type, ftdi_mpsse_mode, ftdi_interface, ftdi_module_detach_mode
     };
     use crate::ftdi::eeprom::{ftdi_eeprom_value};
-    use crate::ftdi::core::{ftdi_context, ftdi_device_list};
+    // use crate::ftdi::core::{FtdiError, Result};
+    use crate::ftdi::ftdi_context::ftdi_context;
+    use crate::ftdi::ftdi_device_list::ftdi_device_list;
 
     #[test]
     fn ftdi_chip_type_conversion() {

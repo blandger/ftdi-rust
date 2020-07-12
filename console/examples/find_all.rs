@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
-use ::ftdi_library::ftdi::core::{ftdi_context, ftdi_device_list};
+use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
+use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
 use ::ftdi_library::ftdi::constants::ftdi_interface;
 use log::{info, error};
 use log4rs;
