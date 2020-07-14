@@ -7,7 +7,7 @@ use libusb_sys as ffi;
 pub const FTDI_MAJOR_VERSION: u8 = 1;
 pub const FTDI_MINOR_VERSION: u8 = 5;
 pub const FTDI_MICRO_VERSION: u8 = 0;
-pub const FTDI_VERSION_STRING: &str = "1.5rc1";
+pub const FTDI_VERSION_STRING: &str = "1.5.0";
 pub const FTDI_SNAPSHOT_VERSION: &str = "v1.5rc1";
 
 /// FTDI chip type
