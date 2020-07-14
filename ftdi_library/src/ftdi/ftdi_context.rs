@@ -14,6 +14,7 @@ use log::{debug, info, warn, error};
 use linuxver::version;
 use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor};
+use std::os::raw::c_uint;
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -75,7 +76,6 @@ pub struct ftdi_context {
 }
 
 impl ftdi_context {
-
     /// Helper functiona to convert USB system error code into FtdiError enum
     pub fn get_usb_sys_init_error(err: c_int) -> FtdiError {
         match err {
@@ -96,7 +96,29 @@ impl ftdi_context {
             _                               => FtdiError::UsbInit{code: -1000, message: "unknown error".to_string()},
         }
     }
-
+    /// Allocate and initialize a new ftdi_context.
+    ///
+    /// ```rust,no_run
+    /// use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
+    ///
+    ///  let ftdi_context = ftdi_context::new();
+    ///     match ftdi_context {
+    ///         Ok(ftdi) => {
+    ///             // use ftdi instance
+    ///             println!("ftdi is OK, index = {}", ftdi.index);
+    ///         },
+    ///         Err(internal_error) => {
+    ///             println!("{:?}", internal_error);
+    ///         },
+    ///     }
+    /// ```
+    /// or using without match
+    ///
+    /// ```rust,no_run
+    /// use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
+    ///
+    /// let mut ftdi = ftdi_context::new()?;
+    /// ```
     pub fn new() -> Result<Self> {
         debug!("start \'new\' ftdi context creation...");
         // let mut context: MaybeUninit<*mut ffi::libusb_context> = unsafe { MaybeUninit::uninit().assume_init() };
@@ -258,13 +280,35 @@ impl ftdi_context {
         }
     }
 
+    /// Opens the first device with a given vendor and product ids.
+    // ftdi_context should be previously initialized otherwise return error.
+    /// vendor is Vendor ID value
+    /// product is Product ID value
+    /// return same as ftdi_usb_open_desc()
     pub fn ftdi_usb_open(&mut self, vendor: u16, product: u16) -> Result<&Self> {
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
         ftdi_context::ftdi_usb_open_desc(self, vendor, product, None, None)
     }
 
+    /// Opens the first device with a given, vendor id, product id,
+    ///  description and serial.
+    ///
+    /// param vendor is Vendor ID value
+    /// param product is Product ID value
+    /// param description Description to search for. Use NONE if not needed
+    /// param serial Serial to search for. Use NONE if not needed.
     pub fn ftdi_usb_open_desc(&mut self, vendor: u16, product: u16,
                               description: Option<&str>,
                               serial: Option<&str>) -> Result<&Self> {
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
         ftdi_context::ftdi_usb_open_desc_index(self, vendor, product, description, serial, 0)
     }
 
@@ -277,8 +321,13 @@ impl ftdi_context {
     pub fn ftdi_usb_open_desc_index(&mut self, vendor: u16, product: u16,
                                     description: Option<&str>,
                                     serial: Option<&str>,
-                                    index: usize) -> Result<&Self> {
+                                    mut index: usize) -> Result<&Self> {
         debug!("start \'ftdi_usb_open_desc_index\' ...");
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
         let device_list = ftdi_device_list::new(self)?;
 
         let sys_device_list = unsafe { slice::from_raw_parts(
@@ -316,6 +365,10 @@ impl ftdi_context {
                 }
                 usb_dev_index += 1;
             }
+            if index > 0 {
+                index -= index;
+                continue;
+            }
             if !handle.is_null() {
                 unsafe { ffi::libusb_close(handle) };
             }
@@ -323,6 +376,61 @@ impl ftdi_context {
         // let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
         debug!("stored usb device quantity = [{}]", device_list.number_found_devices);
         Ok(self)
+    }
+
+    fn ftdi_read_chipid_shift(value: u32) -> u32 {
+        ((value & 1) << 1) |
+            ((value & 2) << 5) |
+            ((value & 4) >> 2) |
+            ((value & 8) << 4) |
+            ((value & 16) >> 1) |
+            ((value & 32) >> 1) |
+            ((value & 64) >> 4) |
+            ((value & 128) >> 2)
+    }
+
+    /// Read the FTDIChip-ID from R-type devices
+    /// ftdi_context should be initialized previously
+    /// return FTDIChip-ID value
+    pub fn ftdi_read_chipid(&self) -> Result<u16> {
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        let mut a: c_uchar = 0 as c_uchar;
+        let mut b: c_uchar = 0 as c_uchar;
+        let control_transfer_result_1 = unsafe {
+            ffi::libusb_control_transfer(
+                self.usb_dev.unwrap(),
+                FTDI_DEVICE_IN_REQTYPE,
+                SIO_READ_EEPROM_REQUEST,
+                0, 0x43, &mut a, 2, self.usb_read_timeout as c_uint)
+        };
+        if control_transfer_result_1 == 2 {
+            a = ((((a as u16) << 8) as u16) | ((a as u16) >> 8) as u16) as u8;
+            let control_transfer_result_2 = unsafe {
+                ffi::libusb_control_transfer(
+                    self.usb_dev.unwrap(),
+                    FTDI_DEVICE_IN_REQTYPE,
+                    SIO_READ_EEPROM_REQUEST, 0, 0x44,&mut b, 2,
+                    self.usb_read_timeout as c_uint)
+            };
+            if control_transfer_result_2 == 2 {
+                // b = b << 8 | b >> 8; // old C code
+                b = u16::from((u16::from(b) << 8 | u16::from(b) >> 8)) as u8;
+                // a = (a << 16) | (b & 0xFFFF); // old C code
+                a = ((u32::from(a) << 16) | (u32::from(b) & 0xFFFF)) as u8;
+                a = (ftdi_context::ftdi_read_chipid_shift(a as u32)
+                    | ftdi_context::ftdi_read_chipid_shift((u32::from(a) >> 8) as u32) << 8
+                    | ftdi_context::ftdi_read_chipid_shift((u32::from(a) >> 16) as u32) << 16
+                    | ftdi_context::ftdi_read_chipid_shift((u32::from(a) >> 24) as u32) << 24) as u8;
+                let chipid: u32 = ((a as u32) ^ (0xa5f0f7d1 as u32)) as u32;
+                return Ok(chipid as u16);
+            }
+        }
+        let error = FtdiError::UsbCommandError { code: -1, message: "read of FTDIChip-ID failed".to_string() };
+        Err(error)
     }
 
 }
