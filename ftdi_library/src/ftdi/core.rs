@@ -19,12 +19,12 @@ pub type Result<T, E = FtdiError> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
 pub enum FtdiError {
-    #[snafu(display("USB SYS INIT: {} - {}", code, message))]
+    #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'", code, message))]
     UsbInit {
         code: i32,
         message: String,
     },
-    #[snafu(display("USB SYS COMMAND: {} - {}", code, message))]
+    #[snafu(display("USB SYS COMMAND: error code: \'{}\', message: \'{}\'", code, message))]
     UsbCommandError {
         code: i32,
         message: String,
