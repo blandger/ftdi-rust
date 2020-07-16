@@ -133,8 +133,8 @@ impl Drop for ftdi_device_list {
 
 
 pub fn print_debug_device_descriptor(handle: *mut ffi::libusb_device_handle,
-                                 descriptor: &ffi::libusb_device_descriptor,
-                                 speed: c_int) {
+                                     descriptor: &ffi::libusb_device_descriptor,
+                                     speed: c_int) {
     debug!("======= Device Descriptor: =======");
     debug!("  bLength: {:16}", descriptor.bLength);
     debug!("  bDescriptorType: {:8} {}", descriptor.bDescriptorType, get_descriptor_type(descriptor.bDescriptorType));
@@ -153,7 +153,7 @@ pub fn print_debug_device_descriptor(handle: *mut ffi::libusb_device_handle,
     debug!("  Speed: {:#8}\n", get_device_speed(speed));
 }
 
-fn get_descriptor_type(desc_type: u8) -> &'static str {
+pub(crate) fn get_descriptor_type(desc_type: u8) -> &'static str {
     match desc_type {
         ffi::LIBUSB_DT_DEVICE => "Device",
         ffi::LIBUSB_DT_CONFIG => "Configuration",
@@ -172,7 +172,7 @@ fn get_descriptor_type(desc_type: u8) -> &'static str {
     }
 }
 
-fn get_bcd_version(bcd_version: u16) -> String {
+pub(crate) fn get_bcd_version(bcd_version: u16) -> String {
     let digit1 = (bcd_version & 0xF000) >> 12;
     let digit2 = (bcd_version & 0x0F00) >> 8;
     let digit3 = (bcd_version & 0x00F0) >> 4;
@@ -186,7 +186,7 @@ fn get_bcd_version(bcd_version: u16) -> String {
     }
 }
 
-fn get_class_type(class: u8) -> &'static str {
+pub(crate) fn get_class_type(class: u8) -> &'static str {
     match class {
         ffi::LIBUSB_CLASS_PER_INTERFACE       => "(Defined at Interface level)",
         ffi::LIBUSB_CLASS_AUDIO               => "Audio",
@@ -210,7 +210,7 @@ fn get_class_type(class: u8) -> &'static str {
     }
 }
 
-fn get_string_descriptor(handle: *mut ffi::libusb_device_handle, desc_index: u8) -> Option<String> {
+pub(crate) fn get_string_descriptor(handle: *mut ffi::libusb_device_handle, desc_index: u8) -> Option<String> {
     if handle.is_null() || desc_index == 0 {
         return None
     }
@@ -227,13 +227,12 @@ fn get_string_descriptor(handle: *mut ffi::libusb_device_handle, desc_index: u8)
             Ok(s) => Some(s),
             Err(_) => None
         }
-    }
-    else {
+    } else {
         None
     }
 }
 
-fn get_device_speed(speed: c_int) -> &'static str {
+pub(crate) fn get_device_speed(speed: c_int) -> &'static str {
     match speed {
         ffi::LIBUSB_SPEED_SUPER       => "5000 Mbps",
         ffi::LIBUSB_SPEED_HIGH        => " 480 Mbps",
