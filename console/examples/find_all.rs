@@ -11,15 +11,17 @@ fn main() -> Result<(), FtdiError> {
         Err(error) => println!("Log config not found, {}", error),
     }
     info!("booting up...");
-    let ftdi_context = ftdi_context::new()?;
+    let ftdi = ftdi_context::new()?;
     info!("ftdi context in created - OK");
 
     info!("start find all usb device(s)...");
-    let list = ftdi_device_list::ftdi_usb_find_all(&ftdi_context, 0, 0)?;
+    let list = ftdi_device_list::ftdi_usb_find_all(&ftdi, 0, 0)?;
     info!("Number of FTDI devices found: {} - OK", list.number_found_devices);
-    for (index, _device) in list.system_device_list.iter().enumerate() {
+    for (index, device) in list.system_device_list.iter().enumerate() {
         info!("Checking device: {}", index);
-        // let (manufacturer, description) = ftdi_usb_get_strings(&ftdi_context_result, &device);
+        let _manufacturer_description = ftdi.ftdi_usb_get_strings(*device)?;
+        // info!("FTDI chip Manufacturer: {}, Description: {}\n\n",
+        //       manufacturer_description.0, manufacturer_description.1);
     }
     Ok(())
 }
