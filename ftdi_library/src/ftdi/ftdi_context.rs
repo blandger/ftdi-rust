@@ -24,7 +24,7 @@ use std::any::Any;
 pub struct ftdi_context {
     /// USB specific
     /// libusb's context
-    pub usb_ctx: *mut ffi::libusb_context,
+    pub usb_ctx: Option<*mut ffi::libusb_context>,
     // pub usb_ctx: MaybeUninit<*mut ffi::libusb_context>,
     /// libusb's usb_dev_handle
     pub usb_dev: Option<*mut ffi::libusb_device_handle>,
@@ -100,7 +100,7 @@ impl ftdi_context {
     /// Allocate and initialize a new ftdi_context.
     ///
     /// ```rust,no_run
-    /// use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
+    ///use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
     ///
     ///  let ftdi_context = ftdi_context::new();
     ///     match ftdi_context {
@@ -205,7 +205,7 @@ impl ftdi_context {
         debug!("ftdi context is DONE!");
         Ok(
             ftdi_context {
-                usb_ctx: context,
+                usb_ctx: Some(context),
                 usb_dev: None, // usb device to be assigned if it's found
                 usb_read_timeout: 5000,
                 usb_write_timeout: 5000,
@@ -454,9 +454,10 @@ impl ftdi_context {
 
     /// Return device ID strings from the usb device.
     ///
-    /// Returns device parameters: manufacturer, description and serial. They may be None
+    /// Returns device parameters as tuple of optional String: manufacturer, description and serial.
+    /// They may be None if they were not fetched.
     /// Note - Use this function only in combination with ftdi_usb_find_all()
-    ///           as it closes the internal "usb_dev" after use.
+    ///    as it closes the internal "usb_dev" after use.
     /// param dev libusb usb_dev to use
     pub fn ftdi_usb_get_strings(&mut self, dev: *const *mut ffi::libusb_device)
         -> Result<(Option<String>, Option<String>, Option<String>)> {
@@ -529,9 +530,10 @@ impl Drop for ftdi_context {
                 debug!("NO ftdi \'usb device handler\' to close...");
             }
         }
-        debug!("before usb context exit...");
-        // unsafe { ffi::libusb_exit(*self.usb_ctx.as_mut_ptr()) };
-        unsafe { ffi::libusb_exit(self.usb_ctx) };
+        if self.usb_ctx != None {
+            debug!("before usb context exit...");
+            unsafe { ffi::libusb_exit(self.usb_ctx.unwrap()) };
+        }
         debug!("closing ftdi context is DONE!");
     }
 }
