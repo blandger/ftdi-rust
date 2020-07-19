@@ -22,6 +22,7 @@ fn main() -> Result<(), FtdiError> {
           version.snapshot_str);
 
     ftdi.ftdi_usb_open(0x0403, 0x6001)?; // fetch ony FTDI devices
+    // ftdi.ftdi_usb_open(0, 0)?; // fetch all devices
     // ftdi.ftdi_usb_open_desc_index(0, 0, None, None, 0)?; // fetch all devices
 
     if ftdi.r#type == ftdi_chip_type::TYPE_R {

@@ -264,16 +264,16 @@ impl ftdi_context {
     pub  fn ftdi_read_data_set_chunksize(&mut self) -> u32 {
         self.readbuffer_offset = 0;
         self.readbuffer_remaining = 0;
-        self.readbuffer_chunksize = self.check_retur_buffer_size();
+        self.readbuffer_chunksize = self.check_return_buffer_size();
         self.readbuffer_chunksize
     }
 
-    /// We can't set readbuffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
+    /// We can't set read_buffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
     /// which is defined in libusb-1.0.  Otherwise, each USB read request will
     /// be divided into multiple URBs.  This will cause issues on Linux kernel
     /// older than 2.6.32.
     #[cfg(target_os = "linux")]
-    fn check_retur_buffer_size(&self) -> u32 {
+    fn check_return_buffer_size(&self) -> u32 {
         let linux_kernel_version = version();
         match linux_kernel_version {
             Ok(version) if (version.major <= 2 && version.minor <= 6 && version.patch <= 32 ) => {
@@ -291,11 +291,6 @@ impl ftdi_context {
     /// product is Product ID value
     /// return same as ftdi_usb_open_desc()
     pub fn ftdi_usb_open(&mut self, vendor: u16, product: u16) -> Result<&Self> {
-        if self.usb_dev == None {
-            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
-            error!("{}", error);
-            return Err(error);
-        }
         ftdi_context::ftdi_usb_open_desc(self, vendor, product, None, None)
     }
 
@@ -304,16 +299,11 @@ impl ftdi_context {
     ///
     /// param vendor is Vendor ID value
     /// param product is Product ID value
-    /// param description Description to search for. Use NONE if not needed
-    /// param serial Serial to search for. Use NONE if not needed.
+    /// param description is Description to search for. Use NONE if not needed
+    /// param serial is Serial to search for. Use NONE if not needed.
     pub fn ftdi_usb_open_desc(&mut self, vendor: u16, product: u16,
                               description: Option<String>,
                               serial: Option<String>) -> Result<&Self> {
-        if self.usb_dev == None {
-            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
-            error!("{}", error);
-            return Err(error);
-        }
         ftdi_context::ftdi_usb_open_desc_index(self, vendor, product, description, serial, 0)
     }
 
@@ -323,16 +313,19 @@ impl ftdi_context {
         READ_BUFFER_CHUNKSIZE
     }
 
+    /// Opens the index-th device with a given, vendor id, product id,
+    ///  description and serial.
+    ///
+    ///  param vendor Vendor ID
+    ///  param product Product ID
+    ///  param description is Description to search for. Use None if not needed.
+    ///  param serial is Serial to search for. Use None if not needed.
+    /// param index Number of matching device to open if there are more than one, starts with 0.
     pub fn ftdi_usb_open_desc_index(&mut self, vendor: u16, product: u16,
                                     description: Option<String>,
                                     serial: Option<String>,
                                     mut index: usize) -> Result<&Self> {
         debug!("start \'ftdi_usb_open_desc_index\' ...");
-        if self.usb_dev == None {
-            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
-            error!("{}", error);
-            return Err(error);
-        }
         let device_list = ftdi_device_list::new(self)?;
 
         let sys_device_list = unsafe { slice::from_raw_parts(
@@ -340,7 +333,7 @@ impl ftdi_context {
         // let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
         let mut usb_dev_index = 0;
         for dev in sys_device_list {
-            // new_device_list.push(*dev);
+
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
@@ -368,9 +361,18 @@ impl ftdi_context {
                         let product_descriptor =
                             super::ftdi_device_list::get_string_descriptor(handle, descriptor.iProduct);
                         if description != None && product_descriptor != None && !description.eq(&product_descriptor.into()) {
-
-                        } else {
-
+                            if !handle.is_null() {
+                                unsafe { ffi::libusb_close(handle) };
+                            }
+                            continue; // skip device
+                        }
+                        let serial_number =
+                            super::ftdi_device_list::get_string_descriptor(handle, descriptor.iSerialNumber);
+                        if serial != None && serial_number != None && !serial.eq(&serial_number) {
+                            if !handle.is_null() {
+                                unsafe { ffi::libusb_close(handle) };
+                            }
+                            continue; // skip device
                         }
                     }
                 }
@@ -378,10 +380,9 @@ impl ftdi_context {
             }
             if index > 0 {
                 index -= index;
-                continue;
-            }
-            if !handle.is_null() {
-                unsafe { ffi::libusb_close(handle) };
+                if !handle.is_null() {
+                    unsafe { ffi::libusb_close(handle) };
+                }
             }
         }
         // let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
@@ -451,28 +452,63 @@ impl ftdi_context {
         Err(error)
     }
 
-    pub fn ftdi_usb_get_strings(&self, dev: *const *mut ffi::libusb_device) -> Result<(Option<String>, Option<String>)> {
+    /// Return device ID strings from the usb device.
+    ///
+    /// Returns device parameters: manufacturer, description and serial. They may be None
+    /// Note - Use this function only in combination with ftdi_usb_find_all()
+    ///           as it closes the internal "usb_dev" after use.
+    /// param dev libusb usb_dev to use
+    pub fn ftdi_usb_get_strings(&mut self, dev: *const *mut ffi::libusb_device)
+        -> Result<(Option<String>, Option<String>, Option<String>)> {
         if self.usb_dev == None {
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
             if unsafe { ffi::libusb_open(dev.cast(), &mut handle) } < 0 {
-            // if unsafe { ffi::libusb_open(*dev, &mut self.usb_dev) } < 0 {
                 warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
-                // handle = ptr::null_mut();
                 let error = FtdiError::UsbInit { code: -4, message: "libusb_open() failed".to_string() };
                 error!("{}", error);
                 return Err(error);
-            }/* else {
-                debug!("found FTDI usb device by index = [{}]", usb_dev_index);
-                print_debug_device_descriptor(handle, &descriptor, speed);
-                // self.usb_dev = Some(handle); // assign found FTDI device
-            }*/
+            }
+            // self.usb_dev = Some(handle);
             self.ftdi_usb_get_strings2(handle)
         } else {
             self.ftdi_usb_get_strings2(self.usb_dev.unwrap())
         }
     }
+    /// Return device ID strings from the usb device.
+    ///
+    /// The parameter's manufacturer, description and serial may be None
+    /// This version only closes the device if it was opened by it.
+    fn ftdi_usb_get_strings2(&self, device_handle: *mut ffi::libusb_device_handle)
+                             -> Result<(Option<String>, Option<String>, Option<String>)> {
+        let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
 
-    fn ftdi_usb_get_strings2(&self, _dev: *mut ffi::libusb_device_handle) -> Result<(Option<String>, Option<String>)> {
+        let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(device_handle.cast(), &mut descriptor) } {
+            0 => {
+                true
+            },
+            _err => {
+                error!("{}", FtdiError::UsbInit{code: -13, message: "libusb_get_device_descriptor() failed".to_string()});
+                false
+            },
+        };
+        if has_descriptor {
+            info!("USB ID : {:04x} : {:04x} : {}", descriptor.idVendor, descriptor.idProduct, descriptor.iSerialNumber);
+            print_debug_device_descriptor(device_handle, &descriptor, 0);
+
+            let manufacturer_descriptor =
+                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iManufacturer);
+            let product_descriptor =
+                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iProduct);
+            let serial_number =
+                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iSerialNumber);
+            return Ok( (manufacturer_descriptor, product_descriptor, serial_number) );
+        } else {
+            debug!("No usb description fetched for device");
+        }
+        Ok( (None, None, None) )
+    }
+
+    pub fn ftdi_usb_open_dev(&self, _dev: *const *mut ffi::libusb_device) -> Result< () > {
         unimplemented!()
     }
 }
@@ -483,8 +519,8 @@ impl Drop for ftdi_context {
         match self.usb_dev {
             Some(usb_device) => {
                 debug!("closing ftdi \'usb device handler\' context...");
-                unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
                 unsafe {ffi::libusb_close(usb_device);}
+                unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
                 self.usb_dev = None;
             }
             None => {
