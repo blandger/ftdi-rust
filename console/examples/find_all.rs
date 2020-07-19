@@ -4,18 +4,25 @@ use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
 use log::{info};
 use log4rs;
 
+#[cfg(target_os = "linux")]
+const PATH_TO_YAML_LOG_CONFIG:&'static str = "./log4rs.yaml"; // string path to log config
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml";
+
 fn main() -> Result<(), FtdiError> {
-    match log4rs::init_file("log4rs.yaml", Default::default()) {
+    match log4rs::init_file(PATH_TO_YAML_LOG_CONFIG, Default::default()) {
         Ok(result) => println!("OK with log config = {:?}", result),
-        Err(error) => println!("Log config not found, {}", error),
+        Err(error) => println!("Log config not found as \'{}\', error: \'{}\'", PATH_TO_YAML_LOG_CONFIG, error),
     }
     info!("booting up...");
     let mut ftdi = ftdi_context::new()?;
     info!("ftdi context in created - OK");
 
     info!("start find all usb device(s)...");
-    let list = ftdi_device_list::ftdi_usb_find_all(&ftdi, 0, 0)?;
-    info!("Number of FTDI devices found: {} - OK", list.number_found_devices);
+    let mut ftdi_list = ftdi_device_list::new(&ftdi)?;
+    let list = ftdi_list.ftdi_usb_find_all(&ftdi,0, 0)?;
+    info!("Number of FTDI devices found: [{}] - OK", list.number_found_devices);
+    info!("List of FTDI usb devices found: \'{:?}\' - OK", list.system_device_list);
     for (index, device) in list.system_device_list.iter().enumerate() {
         info!("Checking device: {}", index);
         let manufacturer_description = ftdi.ftdi_usb_get_strings(*device)?;

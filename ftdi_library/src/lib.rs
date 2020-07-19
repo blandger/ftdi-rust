@@ -19,8 +19,9 @@ mod tests {
 
     #[test]
     fn ftdi_usb_find_all() {
-        let ftdi = ftdi_context::new();
-        match ftdi_device_list::ftdi_usb_find_all(&ftdi.unwrap(), 0, 0) {
+        let ftdi = ftdi_context::new().unwrap();
+        let mut ftdi_list = ftdi_device_list::new(&ftdi).unwrap();
+        match ftdi_list.ftdi_usb_find_all(&ftdi, 0, 0) {
             Ok(_) => {}
             _ => {
                 assert!(false); // error

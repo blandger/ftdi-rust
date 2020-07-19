@@ -5,11 +5,15 @@ use log::{info};
 use log4rs;
 use ftdi_library::ftdi::constants::ftdi_chip_type;
 
+#[cfg(target_os = "linux")]
+const PATH_TO_YAML_LOG_CONFIG:&'static str = "./log4rs.yaml"; // string path to log config
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml";
+
 fn main() -> Result<(), FtdiError> {
-    // log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
-    match log4rs::init_file("log4rs.yaml", Default::default()) {
+    match log4rs::init_file(PATH_TO_YAML_LOG_CONFIG, Default::default()) {
         Ok(result) => println!("OK with log config = {:?}", result),
-        Err(error) => println!("Log config not found, {}", error),
+        Err(error) => println!("Log config not found as \'{}\', error: \'{}\'", PATH_TO_YAML_LOG_CONFIG, error),
     }
 
     info!("booting up...");
