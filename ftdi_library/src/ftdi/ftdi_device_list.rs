@@ -80,12 +80,11 @@ impl ftdi_device_list {
                     print_debug_device_descriptor(handle, &descriptor, speed);
                     // unsafe { ffi::libusb_ref_device(*dev) };
                     // new_device_list.push(*dev);
-                    usb_dev_index += 1;
                 } else {
                     debug!("SKIPPED unmatched USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
                 }
             }
-
+            usb_dev_index += 1;
         }
         // let stored_device_number = new_device_list.len();
         let list = ftdi_device_list{
