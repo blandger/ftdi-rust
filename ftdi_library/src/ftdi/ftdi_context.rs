@@ -468,7 +468,7 @@ impl ftdi_context {
                 error!("{}", error);
                 return Err(error);
             }
-            // self.usb_dev = Some(handle);
+            self.usb_dev = Some(handle);
             self.ftdi_usb_get_strings2(handle)
         } else {
             self.ftdi_usb_get_strings2(self.usb_dev.unwrap())
@@ -509,6 +509,8 @@ impl ftdi_context {
     }
 
     pub fn ftdi_usb_open_dev(&self, _dev: *const *mut ffi::libusb_device) -> Result< () > {
+        // let desc: ffi::libusb_device_descriptor;
+        // let config0: ffi::libusb_config_descriptor;
         unimplemented!()
     }
 }
