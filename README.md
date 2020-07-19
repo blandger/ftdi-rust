@@ -2,7 +2,7 @@
 
 An attempt to port FDTI c library version into rust lang.
 
-## Driver installatioin
+## Driver installation
 ### Linux
 You can watch video **Linux d2xx Driver Installation Guide**
 https://www.youtube.com/watch?v=jynlynjOOek
