@@ -16,6 +16,7 @@ use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor};
 use std::os::raw::c_uint;
 use std::any::Any;
+use crate::ftdi::constants::ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE;
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -225,7 +226,7 @@ impl ftdi_context {
                 bitbang_mode: 0,
                 eeprom: ftdi_eeprom,
                 error_str: 0,
-                module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
+                module_detach_mode: AUTO_DETACH_SIO_MODULE,
             }
         )
     }
@@ -385,7 +386,6 @@ impl ftdi_context {
                 }
             }
         }
-        // let list = ftdi_device_list{ftdi_device_list: new_device_list, system_device_list: Some(device_list)};
         debug!("stored usb device quantity = [{}]", device_list.number_found_devices);
         Ok(self)
     }
@@ -405,6 +405,7 @@ impl ftdi_context {
     /// ftdi_context should be initialized previously
     /// return FTDIChip-ID value
     pub fn ftdi_read_chipid(&self) -> Result<u16> {
+        debug!("start \'ftdi_read_chipid\' ...");
         if self.usb_dev == None {
             let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
             error!("{}", error);
@@ -420,6 +421,7 @@ impl ftdi_context {
                 0, 0x43, &mut a, 2,
                 self.usb_read_timeout as c_uint)
         };
+        debug!("control_transfer_result_1 = {}", control_transfer_result_1);
         if control_transfer_result_1 == 2 {
             a = ((((a as u16) << 8) as u16) | ((a as u16) >> 8) as u16) as u8;
             let control_transfer_result_2 = unsafe {
@@ -430,6 +432,7 @@ impl ftdi_context {
                     0, 0x44,&mut b, 2,
                     self.usb_read_timeout as c_uint)
             };
+            debug!("control_transfer_result_2 = {}", control_transfer_result_2);
             if control_transfer_result_2 == 2 {
                 // b = b << 8 | b >> 8; // old C code
                 b = u16::from(u16::from(b) << 8 | u16::from(b) >> 8) as u8;
@@ -461,6 +464,7 @@ impl ftdi_context {
     /// param dev libusb usb_dev to use
     pub fn ftdi_usb_get_strings(&mut self, dev: *const *mut ffi::libusb_device)
         -> Result<(Option<String>, Option<String>, Option<String>)> {
+        debug!("start \'ftdi_usb_get_strings\' ...");
         if self.usb_dev == None {
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
             if unsafe { ffi::libusb_open(dev.cast(), &mut handle) } < 0 {
@@ -481,8 +485,8 @@ impl ftdi_context {
     /// This version only closes the device if it was opened by it.
     fn ftdi_usb_get_strings2(&self, device_handle: *mut ffi::libusb_device_handle)
                              -> Result<(Option<String>, Option<String>, Option<String>)> {
+        debug!("start \'ftdi_usb_get_strings\' ...");
         let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-
         let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(device_handle.cast(), &mut descriptor) } {
             0 => {
                 true
@@ -509,9 +513,48 @@ impl ftdi_context {
         Ok( (None, None, None) )
     }
 
-    pub fn ftdi_usb_open_dev(&self, _dev: *const *mut ffi::libusb_device) -> Result< () > {
-        // let desc: ffi::libusb_device_descriptor;
-        // let config0: ffi::libusb_config_descriptor;
+    pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result< () > {
+        debug!("start \'ftdi_usb_open_dev\' ...");
+        // check ftdi context
+        if self.usb_ctx == None {
+            let error = FtdiError::UsbInit {code: -8, message: "ftdi context is not initialized previously".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+
+        let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
+        if unsafe { ffi::libusb_open(dev.cast(), &mut handle ) } < 0 {
+            warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
+            let error = FtdiError::UsbInit { code: -4, message: "libusb_open() failed".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        self.usb_dev = Some(handle);
+
+        let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+        let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+        if unsafe { ffi::libusb_get_device_descriptor(handle.cast(), &mut descriptor) } < 0 {
+            let error = FtdiError::UsbInit { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
+            error!("{}", error);
+            return Err(error);
+        };
+        if unsafe { ffi::libusb_get_config_descriptor(handle.cast(), 0, configuraton0) } < 0 {
+            let error = FtdiError::UsbInit { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
+            error!("{}", error);
+            return Err(error);
+        };
+        let _cfg0: u8 = unsafe { (*(*configuraton0)).bConfigurationValue };
+        unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
+
+        // Try to detach ftdi_sio kernel module.
+        //
+        // The return code is kept in a separate variable and only parsed
+        // if usb_set_configuration() or usb_claim_interface() fails as the
+        // detach operation might be denied and everything still works fine.
+        // Likely scenario is a static ftdi_sio kernel module.
+        // if (sel.module_detach_mode == AUTO_DETACH_SIO_MODULE) {
+        // }
+        // ffi::libusb_open(dev, &ftdi->usb_dev);
         unimplemented!()
     }
 }

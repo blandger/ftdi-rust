@@ -6,7 +6,6 @@ use std::{mem::{MaybeUninit}, slice, ptr};
 use log::{debug, info, error};
 use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_context::ftdi_context;
-use crate::ftdi::core::FtdiError::UsbInit;
 
 /// brief list of usb devices created by ftdi_usb_find_all()
 pub struct ftdi_device_list {
@@ -21,6 +20,13 @@ pub struct ftdi_device_list {
 impl ftdi_device_list {
     /// Creates usb device list for all available devices in system
     pub fn new(ftdi: &ftdi_context) -> Result<Self> {
+        debug!("start new ftdi_device_list...");
+        // check ftdi context
+        if ftdi.usb_ctx == None {
+            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
         // fetch usb device list
         let (device_list, devices_len) = ftdi_device_list::get_usb_device_list_internal(ftdi)?;
         let sys_device_list = unsafe { slice::from_raw_parts(
@@ -63,13 +69,11 @@ impl ftdi_device_list {
     ///     }
     /// ```
     pub fn ftdi_usb_find_all(&mut self, ftdi: &ftdi_context, vendor: u16, product: u16) -> Result<Self> {
-        match ftdi.usb_ctx {
-            Some(_) => { /* usb context was initialized correctly */ }
-            _ => {
-                let result = UsbInit { code: -1, message: "ftdi context was not initalized previously".to_string()};
-                error!("{}", result);
-                return Err(result);
-            }
+        // check ftdi context
+        if ftdi.usb_ctx == None {
+            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string()};
+            error!("{}", error);
+            return Err(error);
         }
         // fetch usb device list by calling internal function
         if self.system_device_list == None && self.number_found_devices == 0 {
@@ -118,12 +122,14 @@ impl ftdi_device_list {
         }
         let list = ftdi_device_list{ // TODO: fix to correct way
             number_found_devices: found_usb_count,
-            system_device_list: None};
+            // system_device_list: Some(sys_device_list.as_ptr())
+            system_device_list: None
+        };
         if self.system_device_list != None {
             unsafe { ffi::libusb_free_device_list(self.system_device_list.unwrap(),1); };
             self.system_device_list = None;
         }
-        debug!("usb device quantity: ftdi found =[{}], total usb = [{}]", found_usb_count, usb_dev_index);
+        debug!("usb device quantity: ftdi found = [{}], total usb found = [{}]", found_usb_count, usb_dev_index);
         Ok(list)
     }
 

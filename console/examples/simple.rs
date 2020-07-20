@@ -12,7 +12,7 @@ const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml";
 
 fn main() -> Result<(), FtdiError> {
     match log4rs::init_file(PATH_TO_YAML_LOG_CONFIG, Default::default()) {
-        Ok(result) => println!("OK with log config = {:?}", result),
+        Ok(_) => println!("log4rs config file is found - OK"),
         Err(error) => println!("Log config not found as \'{}\', error: \'{}\'", PATH_TO_YAML_LOG_CONFIG, error),
     }
 
