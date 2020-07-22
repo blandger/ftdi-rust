@@ -4,7 +4,7 @@
 #![allow(unused_imports)]
 
 use libusb_sys as ffi;
-use libc::{c_int,c_uchar};
+use libc::{c_int,c_uchar, EPERM};
 use crate::ftdi::constants::{*};
 use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor};
 use std::os::raw::c_uint;
 use std::any::Any;
-use crate::ftdi::constants::ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE;
+use crate::ftdi::constants::ftdi_module_detach_mode::{AUTO_DETACH_SIO_MODULE, AUTO_DETACH_REATACH_SIO_MODULE};
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -529,7 +529,7 @@ impl ftdi_context {
             error!("{}", error);
             return Err(error);
         }
-        self.usb_dev = Some(handle);
+        // self.usb_dev = Some(handle);
 
         let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
         let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
@@ -543,19 +543,69 @@ impl ftdi_context {
             error!("{}", error);
             return Err(error);
         };
-        let _cfg0: u8 = unsafe { (*(*configuraton0)).bConfigurationValue };
+        let cfg0: c_int = unsafe { (*(*configuraton0)).bConfigurationValue as c_int};
         unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
 
+        let mut detach_errno = 0;
+        let cfg: *mut c_int = 0 as *mut c_int;
+        // let mut cfg0:c_int = 0;
         // Try to detach ftdi_sio kernel module.
         //
         // The return code is kept in a separate variable and only parsed
         // if usb_set_configuration() or usb_claim_interface() fails as the
         // detach operation might be denied and everything still works fine.
         // Likely scenario is a static ftdi_sio kernel module.
-        // if (sel.module_detach_mode == AUTO_DETACH_SIO_MODULE) {
-        // }
+        if self.module_detach_mode == AUTO_DETACH_SIO_MODULE {
+            match unsafe { ffi::libusb_detach_kernel_driver(handle, self.interface as c_int) } {
+                0 => {
+                    debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' - OK!")
+                },
+                sys_error => {
+                    let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
+                    error!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' {}", error_enum);
+                    detach_errno = sys_error
+                }
+            }
+        } else if self.module_detach_mode == AUTO_DETACH_REATACH_SIO_MODULE {
+            match unsafe { ffi::libusb_set_auto_detach_kernel_driver(handle, 1) } {
+                0 => {
+                    debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' - OK!")
+                },
+                sys_error => {
+                    let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
+                    error!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' {}", error_enum);
+                    detach_errno = sys_error
+                }
+            }
+        }
+        if unsafe { ffi::libusb_get_configuration (handle, cfg as *mut c_int) } < 0 {
+            let error = FtdiError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        if descriptor.bNumConfigurations > 0 && (cfg != cfg0 as *mut c_int) {
+            if unsafe { ffi::libusb_set_configuration(handle, cfg0) }  < 0 {
+                if detach_errno == EPERM {
+                    let error = FtdiError::UsbInit { code: -8, message: "inappropriate permissions on device!".to_string() };
+                    error!("{}", error);
+                    return Err(error);
+                } else {
+                    let error = FtdiError::UsbInit { code: -8,
+                        message: "unable to set usb configuration. Make sure the default FTDI driver is not in use".to_string() };
+                    error!("{}", error);
+                    return Err(error);
+                }
+            }
+        }
+        self.usb_dev = Some(handle);
+        self.ftdi_usb_reset()?;
+
         // ffi::libusb_open(dev, &ftdi->usb_dev);
         unimplemented!()
+    }
+
+    fn ftdi_usb_reset(&mut self) -> Result<()> {
+        unimplemented!();
     }
 }
 
