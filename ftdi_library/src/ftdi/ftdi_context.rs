@@ -9,13 +9,14 @@ use crate::ftdi::constants::{*};
 use crate::ftdi::eeprom::ftdi_eeprom;
 use std::sync::{Arc, Mutex};
 use std::{mem::{MaybeUninit}, slice, io, ptr};
+use std::os::raw::{c_uint, c_ushort};
+use std::any::Any;
+use std::ptr::null;
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, warn, error};
 use linuxver::version;
 use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor};
-use std::os::raw::c_uint;
-use std::any::Any;
 use crate::ftdi::constants::ftdi_module_detach_mode::{AUTO_DETACH_SIO_MODULE, AUTO_DETACH_REATACH_SIO_MODULE};
 
 /// brief Main context structure for all libftdi functions.
@@ -40,7 +41,7 @@ pub struct ftdi_context {
     /// baudrate
     pub baudrate: i32,
     /// bitbang mode state
-    pub bitbang_enabled: u8 /*libc::c_char*/,
+    pub bitbang_enabled: bool /*libc::c_char*/,
     /// pointer to read buffer for ftdi_read_data
     pub readbuffer: [u8; 256],
     /// read buffer offset
@@ -212,7 +213,7 @@ impl ftdi_context {
                 usb_write_timeout: 5000,
                 r#type: ftdi_chip_type::TYPE_BM,
                 baudrate: -1,
-                bitbang_enabled: 0,
+                bitbang_enabled: false,
                 readbuffer: [0;256],
                 readbuffer_offset: 0,
                 readbuffer_remaining: 0,
@@ -513,7 +514,10 @@ impl ftdi_context {
         Ok( (None, None, None) )
     }
 
-    pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result< () > {
+    /// Opens a ftdi device given by an usb_device.
+    //
+    //  param dev libusb usb_dev to use
+    pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result<()> {
         debug!("start \'ftdi_usb_open_dev\' ...");
         // check ftdi context
         if self.usb_ctx == None {
@@ -534,12 +538,12 @@ impl ftdi_context {
         let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
         let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
         if unsafe { ffi::libusb_get_device_descriptor(handle.cast(), &mut descriptor) } < 0 {
-            let error = FtdiError::UsbInit { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
+            let error = FtdiError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
             error!("{}", error);
             return Err(error);
         };
         if unsafe { ffi::libusb_get_config_descriptor(handle.cast(), 0, configuraton0) } < 0 {
-            let error = FtdiError::UsbInit { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
+            let error = FtdiError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
             error!("{}", error);
             return Err(error);
         };
@@ -586,11 +590,11 @@ impl ftdi_context {
         if descriptor.bNumConfigurations > 0 && (cfg != cfg0 as *mut c_int) {
             if unsafe { ffi::libusb_set_configuration(handle, cfg0) }  < 0 {
                 if detach_errno == EPERM {
-                    let error = FtdiError::UsbInit { code: -8, message: "inappropriate permissions on device!".to_string() };
+                    let error = FtdiError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string() };
                     error!("{}", error);
                     return Err(error);
                 } else {
-                    let error = FtdiError::UsbInit { code: -8,
+                    let error = FtdiError::UsbCommandError { code: -8,
                         message: "unable to set usb configuration. Make sure the default FTDI driver is not in use".to_string() };
                     error!("{}", error);
                     return Err(error);
@@ -600,13 +604,116 @@ impl ftdi_context {
         self.usb_dev = Some(handle);
         self.ftdi_usb_reset()?;
 
-        // ffi::libusb_open(dev, &ftdi->usb_dev);
+        // Try to guess chip type
+        // Bug in the BM type chips: bcdDevice is 0x200 for serial == 0
+        if descriptor.bcdDevice == 0x400 || (descriptor.bcdDevice == 0x200 && descriptor.iSerialNumber == 0) {
+            self.r#type = ftdi_chip_type::TYPE_BM;
+        } else if descriptor.bcdDevice == 0x200 {
+            self.r#type = ftdi_chip_type::TYPE_AM;
+        } else if descriptor.bcdDevice == 0x500 {
+            self.r#type = ftdi_chip_type::TYPE_2232C;
+        } else if descriptor.bcdDevice == 0x600 {
+            self.r#type = ftdi_chip_type::TYPE_R;
+        } else if descriptor.bcdDevice == 0x700 {
+            self.r#type = ftdi_chip_type::TYPE_2232H;
+        } else if descriptor.bcdDevice == 0x800 {
+            self.r#type = ftdi_chip_type::TYPE_4232H;
+        } else if descriptor.bcdDevice == 0x900 {
+            self.r#type = ftdi_chip_type::TYPE_232H;
+        } else if descriptor.bcdDevice == 0x1000 {
+            self.r#type = ftdi_chip_type::TYPE_230X;
+        } else {
+            let error = FtdiError::UsbInit { code: -8, message: "Is it new 'ftdi_chip_type' ?? or type is not guessed".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        // Determine maximum packet size
+        self.max_packet_size = self.ftdi_determine_max_packet_size()?;
+        self.ftdi_set_baudrate(9600)?;
+        Ok(())
+    }
+
+    /// Resets the ftdi device.
+    fn ftdi_usb_reset(&mut self) -> Result<()> {
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
+        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                                FTDI_DEVICE_OUT_REQTYPE,
+                                                SIO_RESET_REQUEST,
+                                                SIO_RESET_SIO as u16,
+                                                self.index as u16, null_data_ptr,
+                                                0,
+                                                self.usb_write_timeout as c_uint)} < 0 {
+            let error = FtdiError::UsbCommandError {code: -1, message: "FTDI reset failed".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        // Invalidate data in the readbuffer
+        self.readbuffer_offset = 0;
+        self.readbuffer_remaining = 0;
+        Ok(())
+    }
+
+    fn ftdi_determine_max_packet_size(&mut self)  -> Result<u32> {
         unimplemented!()
     }
 
-    fn ftdi_usb_reset(&mut self) -> Result<()> {
-        unimplemented!();
+    /// Sets the chip baud rate
+    ///
+    /// param baudrate baud rate to set
+    fn ftdi_set_baudrate(&mut self, mut baudrate: i32)  -> Result<()> {
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        if self.bitbang_enabled {
+            baudrate = baudrate * 4;
+        }
+        let value: i32 = 0; let index: i32 = 0;
+        let actual_baudrate: i32 = self.ftdi_convert_baudrate(baudrate, &value, &index);
+        if actual_baudrate <= 0 {
+            let error = FtdiError::UsbCommonError {code: -1, message: "Silly baudrate <= 0.".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        // Check within tolerance (about 5%)
+        let compute_result = if (actual_baudrate < baudrate) {
+            actual_baudrate * 21 < baudrate * 20
+        } else {
+            baudrate * 21i32 < actual_baudrate * 20
+        };
+        if (actual_baudrate * 2 < baudrate /* Catch overflows */ )
+            || compute_result {
+            let error = FtdiError::UsbCommonError {code: -1, message: "Unsupported baudrate. \
+                Note: bitbang baudrates are automatically multiplied by 4".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
+        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                                FTDI_DEVICE_OUT_REQTYPE,
+                                                SIO_SET_BAUDRATE_REQUEST,
+                                                value as u16,
+                                                index as u16, null_data_ptr,
+                                                0,
+                                                self.usb_write_timeout as c_uint)} < 0 {
+            let error = FtdiError::UsbCommandError {code: -2, message: "Setting new baudrate failed".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        self.baudrate = baudrate;
+        Ok(())
     }
+
+    fn ftdi_convert_baudrate(&mut self, mut baudrate: i32, value: &i32, index: &i32) -> i32 {
+        unimplemented!()
+    }
+
 }
 
 impl Drop for ftdi_context {

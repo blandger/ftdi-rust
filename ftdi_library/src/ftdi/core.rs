@@ -28,6 +28,11 @@ pub enum FtdiError {
     UsbCommandError {
         code: i32,
         message: String,
+    },
+    #[snafu(display("COMMON ERROR: error code: \'{}\', message: \'{}\'", code, message))]
+    UsbCommonError {
+        code: i32,
+        message: String,
     }
 }
 
