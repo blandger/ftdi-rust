@@ -658,8 +658,49 @@ impl ftdi_context {
         Ok(())
     }
 
+    /// Internal function to determine the maximum packet size.
+    ///  Return Maximum packet size for this device
     fn ftdi_determine_max_packet_size(&mut self)  -> Result<u32> {
-        unimplemented!()
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
+            error!("{}", error);
+            return Ok(64);
+        }
+        let mut packet_size: u32 = 0;
+        // Determine maximum packet size. Init with default value.
+        // New hi-speed devices from FTDI use a packet size of 512 bytes
+        // but could be connected to a normal speed USB hub -> 64 bytes packet size.
+        if self.r#type == ftdi_chip_type::TYPE_2232H || self.r#type  == ftdi_chip_type::TYPE_4232H
+            || self.r#type == ftdi_chip_type::TYPE_232H {
+            packet_size = 512;
+        } else {
+            packet_size = 64;
+        }
+        let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+        let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+        if unsafe { ffi::libusb_get_device_descriptor(self.usb_dev.unwrap().cast(), &mut descriptor) } < 0 {
+            let error = FtdiError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
+            error!("{}", error);
+            return Ok(packet_size);
+        };
+        if unsafe { ffi::libusb_get_config_descriptor(self.usb_dev.unwrap().cast(), 0, configuraton0) } < 0 {
+            let error = FtdiError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
+            error!("{}", error);
+            return Ok(packet_size);
+        };
+        if descriptor.bNumConfigurations > 0 {
+            if self.interface < unsafe { (*(*configuraton0)).bNumInterfaces } {
+                let local_interface = unsafe { (*(*configuraton0)).interface/*[self.interface]*/ };
+                if unsafe { (*local_interface).num_altsetting } > 0  {
+                    let local_descriptor = unsafe { (*local_interface).altsetting/*[0]*/ };
+                    if unsafe { (*local_descriptor).bNumEndpoints } > 0 {
+                        packet_size = unsafe { (*(*local_descriptor).endpoint)/*[0]*/.wMaxPacketSize as u32 };
+                    }
+                }
+            }
+        }
+        unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
+        Ok(packet_size)
     }
 
     /// Sets the chip baud rate
@@ -710,7 +751,38 @@ impl ftdi_context {
         Ok(())
     }
 
+    const H_CLK: i32 = 120000000;
+    const C_CLK: i32 =  48000000;
+
+    /// ftdi_convert_baudrate returns nearest supported baud rate to that requested.
+    //  Function is only used internally
     fn ftdi_convert_baudrate(&mut self, mut baudrate: i32, value: &i32, index: &i32) -> i32 {
+        let mut best_baud = -1;
+        let mut encoded_divisor: u32 = 0;
+        if baudrate <= 0 {
+            let error = FtdiError::UsbCommonError {code: -2, message: "Incorrect baudrate".to_string()};
+            warn!("{}", error);
+            return -1;
+        }
+        if (self.r#type == ftdi_chip_type::TYPE_2232H)
+            || (self.r#type == ftdi_chip_type::TYPE_4232H)
+            || (self.r#type == ftdi_chip_type::TYPE_232H) {
+            if (baudrate * 10) > (ftdi_context::H_CLK / 0x3fff) {
+                /* On H Devices, use 12 000 000 Baudrate when possible
+               We have a 14 bit divisor, a 1 bit divisor switch (10 or 16)
+               three fractional bits and a 120 MHz clock
+               Assume AN_120 "Sub-integer divisors between 0 and 2 are not allowed" holds for
+               DIV/10 CLK too, so /1, /1.5 and /2 can be handled the same*/
+                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::H_CLK, 10, encoded_divisor);
+                encoded_divisor |= 0x20000; /* switch on CLK/10*/
+            } else {
+                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::C_CLK, 16, encoded_divisor);
+            }
+        }
+        unimplemented!()
+    }
+
+    fn ftdi_to_clkbits(&mut self, baudrate: i32, clk: i32, clk_div: i32, encoded_divisor: u32) -> i32 {
         unimplemented!()
     }
 
