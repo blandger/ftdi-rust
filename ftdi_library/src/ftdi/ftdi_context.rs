@@ -391,6 +391,39 @@ impl ftdi_context {
         Ok(self)
     }
 
+    ///  Opens the device at a given USB bus and device address.
+    ///
+    ///  param bus Bus number
+    ///  param addr Device address
+    pub fn ftdi_usb_open_bus_addr(self, bus: u16, addr: u16) {
+        unimplemented!()
+    }
+
+    /// Opens the ftdi-device described by a description-string.
+    /// Intended to be used for parsing a device-description given as commandline argument.
+    ///
+    /// param description is &str, using this format:
+    ///     \li <tt>d:\<devicenode></tt> path of bus and device-node (e.g. "003/001") within usb device tree (usually at /proc/bus/usb/)
+    ///     \li <tt>i:\<vendor>:\<product></tt> first device with given vendor and product id, ids can be decimal, octal (preceded by "0") or hex (preceded by "0x")
+    ///     \li <tt>i:\<vendor>:\<product>:\<index></tt> as above with index being the number of the device (starting with 0) if there are more than one
+    ///     \li <tt>s:\<vendor>:\<product>:\<serial></tt> first device with given vendor id, product id and serial string
+    pub fn tdi_usb_open_string(self, description: &str) -> Result<()> {
+        if self.usb_ctx == None {
+            let error = FtdiError::UsbInit { code: -2, message: "ftdi context is not initialized previously".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        if description.len() == 0 || !description.contains(':')
+            /*|| !description.starts_with("d:")*/ {
+            let error = FtdiError::UsbCommonError { code: -11,
+                message: "illegal \'description\' format, expected value = d:".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+
+        unimplemented!()
+    }
+
     fn ftdi_read_chipid_shift(value: u32) -> u32 {
         ((value & 1) << 1) |
             ((value & 2) << 5) |
@@ -628,7 +661,7 @@ impl ftdi_context {
             return Err(error);
         }
         // Determine maximum packet size
-        self.max_packet_size = self.ftdi_determine_max_packet_size()?;
+        self.max_packet_size = self._ftdi_determine_max_packet_size()?;
         self.ftdi_set_baudrate(9600)?;
         Ok(())
     }
@@ -660,7 +693,7 @@ impl ftdi_context {
 
     /// Internal function to determine the maximum packet size.
     ///  Return Maximum packet size for this device
-    fn ftdi_determine_max_packet_size(&mut self)  -> Result<u32> {
+    fn _ftdi_determine_max_packet_size(&mut self) -> Result<u32> {
         if self.usb_dev == None {
             let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
             error!("{}", error);
@@ -703,6 +736,141 @@ impl ftdi_context {
         Ok(packet_size)
     }
 
+    /// ftdi_to_clkbits_AM For the AM device, convert a requested baudrate
+    ///                     to encoded divisor and the achievable baudrate
+    ///  Function is only used internally
+    ///
+    ///     See AN120
+    ///    clk/1   -> 0
+    ///    clk/1.5 -> 1
+    ///    clk/2   -> 2
+    ///    From /2, 0.125/ 0.25 and 0.5 steps may be taken
+    ///    The fractional part has frac_code encoding
+    fn ftdi_to_clkbits_AM(&mut self, baudrate: i32, encoded_divisor: &mut u32) -> i32 {
+        let am_adjust_up: [u16; 8] = [0, 0, 0, 1, 0, 3, 2, 1];
+        let am_adjust_dn: [u16; 8] = [0, 0, 0, 1, 0, 1, 2, 3];
+        let mut divisor = 24000000 / baudrate;
+        let mut best_divisor = 0;
+        let mut best_baud = 0;
+        let mut best_baud_diff = 0;
+        let mut i = 0;
+        // divisor = 24000000 / baudrate;
+        // Round down to supported fraction (AM only)
+        divisor -= am_adjust_dn[ (divisor & 7) as usize] as i32;
+
+        // Try this divisor and the one above it (because division rounds down)
+        // for (i = 0; i < 2; i++) {
+        while i < 2 {
+            let mut try_divisor: i32 = divisor + i;
+            let mut baud_estimate = 0;
+            let mut baud_diff = 0;
+
+            // Round up to supported divisor value
+            if try_divisor <= 8 {
+                // Round up to minimum supported divisor
+                try_divisor = 8;
+            } else if divisor < 16 {
+                // AM doesn't support divisors 9 through 15 inclusive
+                try_divisor = 16;
+            } else {
+                // Round up to supported fraction (AM only)
+                try_divisor += am_adjust_up[ (try_divisor & 7) as usize] as i32;
+                if try_divisor > 0x1FFF8 {
+                    // Round down to maximum supported divisor value (for AM)
+                    try_divisor = 0x1FFF8;
+                }
+            }
+            // Get estimated baud rate (to nearest integer)
+            baud_estimate = (24000000 + (try_divisor / 2)) / try_divisor;
+            // Get absolute difference from requested baud rate
+            if baud_estimate < baudrate {
+                baud_diff = baudrate - baud_estimate;
+            } else {
+                baud_diff = baud_estimate - baudrate;
+            }
+            if i == 0 || baud_diff < best_baud_diff {
+                // Closest to requested baud rate so far
+                best_divisor = try_divisor;
+                best_baud = baud_estimate;
+                best_baud_diff = baud_diff;
+                if baud_diff == 0 {
+                    // Spot on! No point trying
+                    break;
+                }
+            }
+            i += 1;
+        }
+
+        // Encode the best divisor value
+        *encoded_divisor = ((best_divisor >> 3) | (ftdi_context::FRAC_CODE[ (best_divisor & 7) as usize ] << 14) as i32) as u32;
+        // Deal with special cases for encoded value
+        if *encoded_divisor == 1 {
+            *encoded_divisor = 0;    // 3000000 baud
+        } else if *encoded_divisor == 0x4001 {
+            *encoded_divisor = 1;    // 2000000 baud (BM only)
+        }
+        return best_baud;
+    }
+
+    /// ftdi_to_clkbits Convert a requested baudrate for a given system clock  and predivisor
+    /// to encoded divisor and the achievable baudrate
+    /// Function is only used internally
+    ///
+    ///  See AN120
+    ///    clk/1   -> 0
+    ///    clk/1.5 -> 1
+    ///    clk/2   -> 2
+    ///    From /2, 0.125 steps may be taken.
+    ///    The fractional part has frac_code encoding
+    ///
+    ///    value[13:0] of value is the divisor
+    ///    index[9] mean 12 MHz Base(120 MHz/10) rate versus 3 MHz (48 MHz/16) else
+    ///
+    ///    H Type have all features above with
+    ///    {index[8],value[15:14]} is the encoded subdivisor
+    ///
+    ///    FT232R, FT2232 and FT232BM have no option for 12 MHz and with
+    ///    {index[0],value[15:14]} is the encoded subdivisor
+    ///
+    ///    AM Type chips have only four fractional subdivisors at value[15:14]
+    ///    for subdivisors 0, 0.5, 0.25, 0.125
+    fn ftdi_to_clkbits(&mut self, baudrate: i32, clk: i32, clk_div: i32, encoded_divisor: &mut u32) -> i32 {
+        let mut best_baud = 0;
+        let mut divisor = 0;
+        let mut best_divisor = 0;
+        if baudrate >= clk/clk_div {
+            *encoded_divisor = 0;
+            best_baud = clk/clk_div;
+        } else if baudrate >= clk/(clk_div + clk_div/2) {
+            *encoded_divisor = 1;
+            best_baud = clk/(clk_div + clk_div/2);
+        } else if baudrate >= clk/(2*clk_div) {
+            *encoded_divisor = 2;
+            best_baud = clk/(2*clk_div);
+        } else {
+            /* We divide by 16 to have 3 fractional bits and one bit for rounding */
+            divisor = clk*16/clk_div/baudrate;
+            if (divisor & 1) != 0 {
+                /* Decide if to round up or down*/
+                best_divisor = divisor / 2 + 1;
+            } else {
+                best_divisor = divisor / 2;
+            }
+            if best_divisor > 0x20000 {
+                best_divisor = 0x1ffff;
+            }
+            best_baud = clk*16/clk_div/best_divisor;
+            if (best_baud & 1) != 0 {
+                /* Decide if to round up or down*/
+                best_baud = best_baud / 2 + 1;
+            } else {
+                best_baud = best_baud / 2;
+            }
+            *encoded_divisor = ((best_divisor >> 3) | (ftdi_context::FRAC_CODE[ (best_divisor & 0x7) as usize] << 14) as i32) as u32;
+        }
+        return best_baud;
+    }
+
     /// Sets the chip baud rate
     ///
     /// param baudrate baud rate to set
@@ -715,15 +883,16 @@ impl ftdi_context {
         if self.bitbang_enabled {
             baudrate = baudrate * 4;
         }
-        let value: i32 = 0; let index: i32 = 0;
-        let actual_baudrate: i32 = self.ftdi_convert_baudrate(baudrate, &value, &index);
+        let mut value: u16 = 0;
+        let mut index: u16 = 0;
+        let actual_baudrate: i32 = self.ftdi_convert_baudrate(baudrate, &mut value, &mut index);
         if actual_baudrate <= 0 {
             let error = FtdiError::UsbCommonError {code: -1, message: "Silly baudrate <= 0.".to_string()};
             error!("{}", error);
             return Err(error);
         }
         // Check within tolerance (about 5%)
-        let compute_result = if (actual_baudrate < baudrate) {
+        let compute_result = if actual_baudrate < baudrate {
             actual_baudrate * 21 < baudrate * 20
         } else {
             baudrate * 21i32 < actual_baudrate * 20
@@ -751,12 +920,13 @@ impl ftdi_context {
         Ok(())
     }
 
+    const FRAC_CODE: [u16; 8] = [0, 3, 2, 4, 1, 5, 6, 7]; // static const char
     const H_CLK: i32 = 120000000;
     const C_CLK: i32 =  48000000;
 
     /// ftdi_convert_baudrate returns nearest supported baud rate to that requested.
     //  Function is only used internally
-    fn ftdi_convert_baudrate(&mut self, mut baudrate: i32, value: &i32, index: &i32) -> i32 {
+    fn ftdi_convert_baudrate(&mut self, baudrate: i32, value: &mut u16, index: &mut u16) -> i32 {
         let mut best_baud = -1;
         let mut encoded_divisor: u32 = 0;
         if baudrate <= 0 {
@@ -772,18 +942,28 @@ impl ftdi_context {
                We have a 14 bit divisor, a 1 bit divisor switch (10 or 16)
                three fractional bits and a 120 MHz clock
                Assume AN_120 "Sub-integer divisors between 0 and 2 are not allowed" holds for
-               DIV/10 CLK too, so /1, /1.5 and /2 can be handled the same*/
-                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::H_CLK, 10, encoded_divisor);
+               DIV/10 CLK too, so /1, /1.5 and /2 can be handled the same */
+                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::H_CLK, 10, &mut encoded_divisor);
                 encoded_divisor |= 0x20000; /* switch on CLK/10*/
             } else {
-                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::C_CLK, 16, encoded_divisor);
+                best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::C_CLK, 16, &mut encoded_divisor);
             }
+        } else {
+            best_baud = self.ftdi_to_clkbits_AM(baudrate, &mut encoded_divisor);
         }
-        unimplemented!()
-    }
-
-    fn ftdi_to_clkbits(&mut self, baudrate: i32, clk: i32, clk_div: i32, encoded_divisor: u32) -> i32 {
-        unimplemented!()
+        // Split into "value" and "index" values
+        *value = (encoded_divisor & 0xFFFF) as u16;
+        if self.r#type == ftdi_chip_type::TYPE_2232H
+            || self.r#type == ftdi_chip_type::TYPE_4232H
+            || self.r#type == ftdi_chip_type::TYPE_232H {
+            *index = (encoded_divisor >> 8) as u16;
+            *index &= 0xFF00;
+            *index |= self.index as u16;
+        } else {
+            *index = (encoded_divisor >> 16) as u16;
+        }
+        // Return the nearest baud rate
+        return best_baud;
     }
 
 }
