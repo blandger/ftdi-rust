@@ -280,9 +280,9 @@ impl ftdi_context {
             }
         }
     }
-
-    #[cfg(!target_os = "linux")]
-    fn check_and_calculate_buffer_size(&self) -> u32 {
+    // And this function only gets compiled if the target OS is *not* linux
+    #[cfg(not(target_os = "linux"))]
+    fn check_and_calculate_buffer_size() -> u32 {
         READ_BUFFER_CHUNKSIZE
     }
 
@@ -306,12 +306,6 @@ impl ftdi_context {
                               description: Option<String>,
                               serial: Option<String>) -> Result<&Self> {
         ftdi_context::ftdi_usb_open_desc_index(self, vendor, product, description, serial, 0)
-    }
-
-    // And this function only gets compiled if the target OS is *not* linux
-    #[cfg(not(target_os = "linux"))]
-    fn check_return_size() -> u32 {
-        READ_BUFFER_CHUNKSIZE
     }
 
     /// Opens the index-th device with a given, vendor id, product id,
