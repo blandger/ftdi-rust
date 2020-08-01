@@ -202,7 +202,7 @@ impl ftdi_context {
             user_data: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
             size: 0,
             chip: 0,
-            buf: Vec::with_capacity(calculated_max_chunk_size),
+            buf: Vec::with_capacity(calculated_max_chunk_size as usize),
             release_number: 0,
         };
         debug!("ftdi context is DONE!");
