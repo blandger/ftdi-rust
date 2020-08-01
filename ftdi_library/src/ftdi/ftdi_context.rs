@@ -6,7 +6,7 @@
 use libusb_sys as ffi;
 use libc::{c_int,c_uchar, EPERM};
 use crate::ftdi::constants::{*};
-use crate::ftdi::eeprom::ftdi_eeprom;
+use crate::ftdi::eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE};
 use std::sync::{Arc, Mutex};
 use std::{mem::{MaybeUninit}, slice, io, ptr};
 use std::os::raw::{c_uint, c_ushort};
@@ -43,7 +43,7 @@ pub struct ftdi_context {
     /// bitbang mode state
     pub bitbang_enabled: bool /*libc::c_char*/,
     /// pointer to read buffer for ftdi_read_data
-    pub readbuffer: [u8; 256],
+    pub readbuffer: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
     /// read buffer offset
     pub readbuffer_offset: u32,
     /// number of remaining data in internal read buffer
@@ -161,9 +161,9 @@ impl ftdi_context {
             usb_version: 0,
             use_usb_version: 0,
             max_power: 0,
-            manufacturer: [0;256],
-            product: [0;256],
-            serial: [0;256],
+            manufacturer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
+            product: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
+            serial: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
             channel_a_type: 0,
             channel_b_type: 0,
             channel_a_driver: 0,
@@ -174,7 +174,7 @@ impl ftdi_context {
             channel_b_rs485enable: false,
             channel_c_rs485enable: false,
             channel_d_rs485enable: false,
-            cbus_function: [0i32; 10],
+            cbus_function: Box::new([0i32; 10]),
             high_current: 0,
             high_current_a: 0,
             high_current_b: 0,
@@ -198,10 +198,10 @@ impl ftdi_context {
             flow_control: 0,
             user_data_addr: 0,
             user_data_size: 0,
-            user_data: [0;256],
+            user_data: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
             size: 0,
             chip: 0,
-            buf: [0;256],
+            buf: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
             release_number: 0,
         };
         debug!("ftdi context is DONE!");
@@ -214,7 +214,7 @@ impl ftdi_context {
                 r#type: ftdi_chip_type::TYPE_BM,
                 baudrate: -1,
                 bitbang_enabled: false,
-                readbuffer: [0;256],
+                readbuffer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
                 readbuffer_offset: 0,
                 readbuffer_remaining: 0,
                 readbuffer_chunksize: 0,

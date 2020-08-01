@@ -44,13 +44,13 @@ pub struct ftdi_eeprom {
     pub max_power: i32,
 
     /// manufacturer name
-    pub manufacturer: [u8; 256],
+    pub manufacturer: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
     // pub manufacturer: String,
     /// product name
     // pub product: String,
-    pub product: [u8; 256],
+    pub product: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
     /// serial number
-    pub serial: [u8; 256],
+    pub serial: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
 
     /// 2232D/H specific
     /// Hardware type, 0 = RS232 Uart, 1 = 245 FIFO, 2 = CPU FIFO, 4 = OPTO Isolate
@@ -69,7 +69,7 @@ pub struct ftdi_eeprom {
 
     /// Special function of FT232R/FT232H devices (and possibly others as well)
     /// CBUS pin function. See CBUS_xxx defines.
-    pub cbus_function: [i32;10],
+    pub cbus_function: Box<[i32;10]>,
     /// Select high current drive on R devices.
     pub high_current: i32,
     /// Select high current drive on A channel (2232C).
@@ -108,13 +108,13 @@ pub struct ftdi_eeprom {
     /// user data
     pub user_data_addr: i32,
     pub user_data_size: i32,
-    pub user_data: [u8; 256],
+    pub user_data: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
 
     /// eeprom size in bytes. This doesn't get stored in the eeprom but is the only way to pass it to ftdi_eeprom_build.
     pub size: i32,
     /// EEPROM Type 0x46 for 93xx46, 0x56 for 93xx56 and 0x66 for 93xx66
     pub chip: i32,
-    pub buf: [u8; FTDI_MAX_EEPROM_SIZE],
+    pub buf: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
 
     /// device release number
     pub release_number: i32,
