@@ -208,6 +208,7 @@ impl From<u8> for ftdi_module_detach_mode {
 
 // #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub const READ_BUFFER_CHUNKSIZE: u32 = 4096;
+pub const WRITE_BUFFER_CHUNKSIZE: u32 = 4096;
 /// We can't set readbuffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
 /// which is defined in libusb-1.0.  Otherwise, each USB read request will
 /// be divided into multiple URBs.  This will cause issues on Linux kernel

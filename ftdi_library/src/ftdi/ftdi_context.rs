@@ -145,7 +145,8 @@ impl ftdi_context {
                 return Err(error_enum);
             }
         };
-
+        // calculate max buffer size depending on OS
+        let calculated_max_chunk_size = ftdi_context::check_and_calculate_buffer_size();
         let ftdi_eeprom = ftdi_eeprom {
             vendor_id: 0,
             product_id: 0,
@@ -201,7 +202,7 @@ impl ftdi_context {
             user_data: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
             size: 0,
             chip: 0,
-            buf: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
+            buf: Vec::with_capacity(calculated_max_chunk_size),
             release_number: 0,
         };
         debug!("ftdi context is DONE!");
@@ -217,8 +218,8 @@ impl ftdi_context {
                 readbuffer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
                 readbuffer_offset: 0,
                 readbuffer_remaining: 0,
-                readbuffer_chunksize: 0,
-                writebuffer_chunksize: READ_BUFFER_CHUNKSIZE,
+                readbuffer_chunksize: calculated_max_chunk_size,
+                writebuffer_chunksize: WRITE_BUFFER_CHUNKSIZE,
                 max_packet_size: 0,
                 interface: 0,
                 index: 0,
@@ -263,19 +264,12 @@ impl ftdi_context {
         self.bitbang_mode = 1; /* when bitbang is enabled this holds the number of the mode  */
     }
 
-    pub  fn ftdi_read_data_set_chunksize(&mut self) -> u32 {
-        self.readbuffer_offset = 0;
-        self.readbuffer_remaining = 0;
-        self.readbuffer_chunksize = self.check_return_buffer_size();
-        self.readbuffer_chunksize
-    }
-
     /// We can't set read_buffer_chunksize larger than MAX_BULK_BUFFER_LENGTH,
     /// which is defined in libusb-1.0.  Otherwise, each USB read request will
     /// be divided into multiple URBs.  This will cause issues on Linux kernel
     /// older than 2.6.32.
     #[cfg(target_os = "linux")]
-    fn check_return_buffer_size(&self) -> u32 {
+    fn check_and_calculate_buffer_size() -> u32 {
         let linux_kernel_version = version();
         match linux_kernel_version {
             Ok(version) if (version.major <= 2 && version.minor <= 6 && version.patch <= 32 ) => {
@@ -285,6 +279,11 @@ impl ftdi_context {
                 READ_BUFFER_CHUNKSIZE
             }
         }
+    }
+
+    #[cfg(!target_os = "linux")]
+    fn check_and_calculate_buffer_size(&self) -> u32 {
+        READ_BUFFER_CHUNKSIZE
     }
 
     /// Opens the first device with a given vendor and product ids.

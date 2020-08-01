@@ -114,7 +114,8 @@ pub struct ftdi_eeprom {
     pub size: i32,
     /// EEPROM Type 0x46 for 93xx46, 0x56 for 93xx56 and 0x66 for 93xx66
     pub chip: i32,
-    pub buf: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
+    // pub buf: Box<[u8; FTDI_MAX_EEPROM_SIZE]>,
+    pub buf: Vec<u8>, // size depends on OS
 
     /// device release number
     pub release_number: i32,
