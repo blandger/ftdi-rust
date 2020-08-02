@@ -5,19 +5,25 @@
 
 use libusb_sys as ffi;
 use libc::{c_int,c_uchar, EPERM};
-use crate::ftdi::constants::{*};
-use crate::ftdi::eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE};
-use std::sync::{Arc, Mutex};
-use std::{mem::{MaybeUninit}, slice, io, ptr};
-use std::os::raw::{c_uint, c_ushort};
-use std::any::Any;
-use std::ptr::null;
+use std::{
+    fmt::{Display, Formatter, Debug},
+    sync::{Arc, Mutex},
+    mem::{MaybeUninit}, slice, io, ptr,
+    os::raw::{c_uint, c_ushort},
+    any::Any,
+    ptr::null,
+};
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, warn, error};
 use linuxver::version;
-use crate::ftdi::core::{FtdiError, Result};
-use crate::ftdi::ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor};
-use crate::ftdi::constants::ftdi_module_detach_mode::{AUTO_DETACH_SIO_MODULE, AUTO_DETACH_REATACH_SIO_MODULE};
+use crate::ftdi::{
+    constants::{*},
+    core::{FtdiError, Result},
+    ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor},
+    eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE}
+};
+use crate::scanf;
+
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -77,6 +83,21 @@ pub struct ftdi_context {
     /// Defines behavior in case a kernel module is already attached to the device
     pub module_detach_mode: ftdi_module_detach_mode,
 }
+impl Display for ftdi_context {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "FTDI ctx:(usb_ctx = {} / usb_dev = {})", self.usb_ctx.is_some(), self.usb_dev.is_some())
+    }
+}
+impl Debug for ftdi_context {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "FTDI ctx:\nusb_ctx: {:?}\nusb_dev: {:?})\n \
+        r#type: {:?}"
+        ,self.usb_ctx, self.usb_dev, self.r#type
+
+        )
+    }
+}
+
 
 impl ftdi_context {
     /// Helper functiona to convert USB system error code into FtdiError enum
@@ -228,7 +249,7 @@ impl ftdi_context {
                 bitbang_mode: 0,
                 eeprom: ftdi_eeprom,
                 error_str: 0,
-                module_detach_mode: AUTO_DETACH_SIO_MODULE,
+                module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
             }
         )
     }
@@ -270,12 +291,15 @@ impl ftdi_context {
     /// older than 2.6.32.
     #[cfg(target_os = "linux")]
     fn check_and_calculate_buffer_size() -> u32 {
+        debug!("start \'check_and_calculate_buffer_size\' ...");
         let linux_kernel_version = version();
         match linux_kernel_version {
             Ok(version) if (version.major <= 2 && version.minor <= 6 && version.patch <= 32 ) => {
+                debug!("\'check_and_calculate_buffer_size\' LOW LINUX result = {}", READ_BUFFER_CHUNKSIZE_LINUX_LOW_KERNEL);
                 READ_BUFFER_CHUNKSIZE_LINUX_LOW_KERNEL
             }
             _ => {
+                debug!("\'check_and_calculate_buffer_size\' LINUX result = {}", READ_BUFFER_CHUNKSIZE);
                 READ_BUFFER_CHUNKSIZE
             }
         }
@@ -283,6 +307,7 @@ impl ftdi_context {
     // And this function only gets compiled if the target OS is *not* linux
     #[cfg(not(target_os = "linux"))]
     fn check_and_calculate_buffer_size() -> u32 {
+        debug!("\'check_and_calculate_buffer_size\' OTHER OS result = {}", READ_BUFFER_CHUNKSIZE);
         READ_BUFFER_CHUNKSIZE
     }
 
@@ -388,7 +413,9 @@ impl ftdi_context {
     ///
     ///  param bus Bus number
     ///  param addr Device address
-    pub fn ftdi_usb_open_bus_addr(self, bus: u16, addr: u16) {
+    pub fn ftdi_usb_open_bus_addr(self, bus: u16, addr: u16) -> Result<()> {
+        debug!("start \'ftdi_usb_open_bus_addr\' ...");
+        let device_list = ftdi_device_list::new(&self)?;
         unimplemented!()
     }
 
@@ -396,13 +423,14 @@ impl ftdi_context {
     /// Intended to be used for parsing a device-description given as commandline argument.
     ///
     /// param description is &str, using this format:
-    ///     \li <tt>d:\<devicenode></tt> path of bus and device-node (e.g. "003/001") within usb device tree (usually at /proc/bus/usb/)
-    ///     \li <tt>i:\<vendor>:\<product></tt> first device with given vendor and product id, ids can be decimal, octal (preceded by "0") or hex (preceded by "0x")
-    ///     \li <tt>i:\<vendor>:\<product>:\<index></tt> as above with index being the number of the device (starting with 0) if there are more than one
-    ///     \li <tt>s:\<vendor>:\<product>:\<serial></tt> first device with given vendor id, product id and serial string
-    pub fn tdi_usb_open_string(self, description: &str) -> Result<()> {
+    ///     d:<devicenode> -  path of bus and device-node (e.g. "003/001") within usb device tree (usually at /proc/bus/usb/)
+    ///     i:<vendor>:<product> - first device with given vendor and product id, ids can be decimal, octal (preceded by "0o") or hex (preceded by "0x")
+    ///     i:<vendor>:<product>:<index> - as above with index being the number of the device (starting with 0) if there are more than one
+    ///     s:<vendor>:<product>:<serial> - first device with given vendor id, product id and serial string
+    pub fn ftdi_usb_open_string(&mut self, description: &str) -> Result<()> {
+        debug!("start \'ftdi_usb_open_string\' ...");
         if self.usb_ctx == None {
-            let error = FtdiError::UsbInit { code: -2, message: "ftdi context is not initialized previously".to_string() };
+            let error = FtdiError::UsbInit { code: -12, message: "ftdi context is not initialized previously".to_string() };
             error!("{}", error);
             return Err(error);
         }
@@ -414,6 +442,60 @@ impl ftdi_context {
             return Err(error);
         }
 
+        // starts with 'd' letter
+        if description.starts_with('d') {
+
+            /* XXX: This doesn't handle symlinks/odd paths/etc... */
+            let scan_result: (Option<u16>, Option<u16>) = scanf! (description, '/', u16, u16);
+            match scan_result {
+                // Some(bus_number_param) if Some(device_address_param) => {
+                (Some(bus_number), Some(device_address)) => {
+                    debug!("\'ftdi_usb_open_string\' bus_number = \'{}\' / device_address = \'{}\'",
+                           bus_number, device_address);
+                    // get all usb device list
+                    let device_list = ftdi_device_list::new(&self)?;
+                    // try get device number and address
+                    let sys_device_list = unsafe { slice::from_raw_parts(
+                        device_list.system_device_list.unwrap(), device_list.number_found_devices) };
+                    // loop over usb list
+                    for dev in sys_device_list {
+                        if bus_number == unsafe { ffi::libusb_get_bus_number(*dev) } as u16
+                            && device_address == unsafe { ffi::libusb_get_device_address(*dev) } as u16 {
+                            self.ftdi_usb_open_dev(dev)?; // usb device found and opened
+                            debug!("FOUND \'ftdi_usb_open_string\' - OK by {}", description);
+                            return Ok(());
+                        }
+                    }
+                    let error = FtdiError::UsbCommonError { code: -3,
+                        message: format!("device not found by supplied description = \'{}\'", description).to_string() };
+                    error!("{}", error);
+                    return Err(error);
+                }
+                _ => {
+                    let error = FtdiError::UsbCommonError { code: -11,
+                        message: "illegal \'description\' format, expected in a format 'xxx/yyy'".to_string() };
+                    error!("{}", error);
+                    return Err(error);
+                }
+            }
+        } else if description.starts_with('i') || description.starts_with('s') {
+            // starts with 'i' or 's' letter
+            // parse 'decription' by splitting into 2 or 3 parts by ':' delimiter
+            let device_name_parts:Vec<&str> = description.split(':').collect();
+
+        } else {
+            let error = FtdiError::UsbCommonError { code: -11,
+                message: "illegal \'description\' format, unexpected format".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        unimplemented!()
+    }
+
+    fn parse_vendor_product_index(description: &str) -> Vec<u16> {
+        let without_prefix = description.trim_start_matches("0x");
+        let z = i64::from_str_radix(without_prefix, 16);
+        println!("{:?}", z);
         unimplemented!()
     }
 
@@ -533,16 +615,18 @@ impl ftdi_context {
                 super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iProduct);
             let serial_number =
                 super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iSerialNumber);
+            debug!("All data is fetched from device: {:?}, {:?}, {:?}", manufacturer_descriptor, product_descriptor, serial_number);
             return Ok( (manufacturer_descriptor, product_descriptor, serial_number) );
         } else {
             debug!("No usb description fetched for device");
         }
+        debug!("No data is fetched from device");
         Ok( (None, None, None) )
     }
 
     /// Opens a ftdi device given by an usb_device.
-    //
-    //  param dev libusb usb_dev to use
+    ///
+    ///  param dev libusb usb_dev to use
     pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result<()> {
         debug!("start \'ftdi_usb_open_dev\' ...");
         // check ftdi context
@@ -585,7 +669,7 @@ impl ftdi_context {
         // if usb_set_configuration() or usb_claim_interface() fails as the
         // detach operation might be denied and everything still works fine.
         // Likely scenario is a static ftdi_sio kernel module.
-        if self.module_detach_mode == AUTO_DETACH_SIO_MODULE {
+        if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE {
             match unsafe { ffi::libusb_detach_kernel_driver(handle, self.interface as c_int) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' - OK!")
@@ -596,7 +680,7 @@ impl ftdi_context {
                     detach_errno = sys_error
                 }
             }
-        } else if self.module_detach_mode == AUTO_DETACH_REATACH_SIO_MODULE {
+        } else if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_REATACH_SIO_MODULE {
             match unsafe { ffi::libusb_set_auto_detach_kernel_driver(handle, 1) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' - OK!")
@@ -654,13 +738,15 @@ impl ftdi_context {
             return Err(error);
         }
         // Determine maximum packet size
-        self.max_packet_size = self._ftdi_determine_max_packet_size()?;
+        self.max_packet_size = self.ftdi_determine_max_packet_size()?;
         self.ftdi_set_baudrate(9600)?;
+        debug!("ftdi_usb_open_dev - OK");
         Ok(())
     }
 
     /// Resets the ftdi device.
     fn ftdi_usb_reset(&mut self) -> Result<()> {
+        debug!("start \'ftdi_usb_reset\' ...");
         if self.usb_dev == None {
             let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
             error!("{}", error);
@@ -681,12 +767,14 @@ impl ftdi_context {
         // Invalidate data in the readbuffer
         self.readbuffer_offset = 0;
         self.readbuffer_remaining = 0;
+        debug!("start \'ftdi_usb_reset\' - OK");
         Ok(())
     }
 
     /// Internal function to determine the maximum packet size.
     ///  Return Maximum packet size for this device
-    fn _ftdi_determine_max_packet_size(&mut self) -> Result<u32> {
+    fn ftdi_determine_max_packet_size(&mut self) -> Result<u32> {
+        debug!("start \'ftdi_usb_open_busftdi_determine_max_packet_size");
         if self.usb_dev == None {
             let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
             error!("{}", error);
@@ -726,6 +814,7 @@ impl ftdi_context {
             }
         }
         unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
+        debug!("\'ftdi_determine_max_packet_size\' - OK : {}", packet_size);
         Ok(packet_size)
     }
 
@@ -739,7 +828,8 @@ impl ftdi_context {
     ///    clk/2   -> 2
     ///    From /2, 0.125/ 0.25 and 0.5 steps may be taken
     ///    The fractional part has frac_code encoding
-    fn ftdi_to_clkbits_AM(&mut self, baudrate: i32, encoded_divisor: &mut u32) -> i32 {
+    fn ftdi_to_clkbits_am(&mut self, baudrate: i32, encoded_divisor: &mut u32) -> i32 {
+        debug!("start \'ftdi_to_clkbits_am\' ...");
         let am_adjust_up: [u16; 8] = [0, 0, 0, 1, 0, 3, 2, 1];
         let am_adjust_dn: [u16; 8] = [0, 0, 0, 1, 0, 1, 2, 3];
         let mut divisor = 24000000 / baudrate;
@@ -802,6 +892,7 @@ impl ftdi_context {
         } else if *encoded_divisor == 0x4001 {
             *encoded_divisor = 1;    // 2000000 baud (BM only)
         }
+        debug!("\'ftdi_usb_open_bus_addr\' best_baud = {}", best_baud);
         return best_baud;
     }
 
@@ -828,6 +919,7 @@ impl ftdi_context {
     ///    AM Type chips have only four fractional subdivisors at value[15:14]
     ///    for subdivisors 0, 0.5, 0.25, 0.125
     fn ftdi_to_clkbits(&mut self, baudrate: i32, clk: i32, clk_div: i32, encoded_divisor: &mut u32) -> i32 {
+        debug!("start \'ftdi_to_clkbits\' ...");
         let mut best_baud = 0;
         let mut divisor = 0;
         let mut best_divisor = 0;
@@ -861,6 +953,7 @@ impl ftdi_context {
             }
             *encoded_divisor = ((best_divisor >> 3) | (ftdi_context::FRAC_CODE[ (best_divisor & 0x7) as usize] << 14) as i32) as u32;
         }
+        debug!("\'ftdi_to_clkbits_am\' OK: best_baud = {}", best_baud);
         return best_baud;
     }
 
@@ -868,6 +961,7 @@ impl ftdi_context {
     ///
     /// param baudrate baud rate to set
     fn ftdi_set_baudrate(&mut self, mut baudrate: i32)  -> Result<()> {
+        debug!("start \'ftdi_set_baudrate\' ...");
         if self.usb_dev == None {
             let error = FtdiError::UsbInit {code: -2, message: "USB device unavailable".to_string()};
             error!("{}", error);
@@ -910,6 +1004,7 @@ impl ftdi_context {
             return Err(error);
         }
         self.baudrate = baudrate;
+        debug!("\'ftdi_set_baudrate\' OK : baudrate = {}", baudrate);
         Ok(())
     }
 
@@ -920,6 +1015,7 @@ impl ftdi_context {
     /// ftdi_convert_baudrate returns nearest supported baud rate to that requested.
     //  Function is only used internally
     fn ftdi_convert_baudrate(&mut self, baudrate: i32, value: &mut u16, index: &mut u16) -> i32 {
+        debug!("start \'ftdi_convert_baudrate\' ...");
         let mut best_baud = -1;
         let mut encoded_divisor: u32 = 0;
         if baudrate <= 0 {
@@ -942,7 +1038,7 @@ impl ftdi_context {
                 best_baud = self.ftdi_to_clkbits(baudrate, ftdi_context::C_CLK, 16, &mut encoded_divisor);
             }
         } else {
-            best_baud = self.ftdi_to_clkbits_AM(baudrate, &mut encoded_divisor);
+            best_baud = self.ftdi_to_clkbits_am(baudrate, &mut encoded_divisor);
         }
         // Split into "value" and "index" values
         *value = (encoded_divisor & 0xFFFF) as u16;
@@ -956,9 +1052,74 @@ impl ftdi_context {
             *index = (encoded_divisor >> 16) as u16;
         }
         // Return the nearest baud rate
+        debug!("\'ftdi_convert_baudrate\' - OK: best_baud = {}", best_baud);
         return best_baud;
     }
 
+    /// Set (RS232) line characteristics.
+    /// The break type can only be set via ftdi_set_line_property2() and defaults to "off".
+    ///
+    /// param bits Number of bits
+    /// param sbit Number of stop bits
+    /// param parity Parity mode
+    pub fn ftdi_set_line_property(&mut self, bits: ftdi_bits_type,
+                              sbit: ftdi_stopbits_type,
+                              parity: ftdi_parity_type) -> Result<()> {
+        self.ftdi_set_line_property2(bits, sbit, parity, ftdi_break_type::BREAK_OFF)
+    }
+
+    /// Set (RS232) line characteristics.
+    /// The break type can only be set via ftdi_set_line_property2() and defaults to "off".
+    ///
+    /// param bits Number of bits
+    /// param sbit Number of stop bits
+    /// param parity Parity mode
+    /// param break_type Break type
+    pub fn ftdi_set_line_property2(&mut self, bits: ftdi_bits_type,
+                               sbit: ftdi_stopbits_type, parity: ftdi_parity_type,
+                               break_type: ftdi_break_type ) -> Result<()> {
+        debug!("start \'ftdi_set_line_property2\' ...");
+        if self.usb_dev == None {
+            let error = FtdiError::UsbInit { code: -2, message: "USB device unavailable".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
+        let mut value: u16 = bits as u16;
+
+        match parity {
+            ftdi_parity_type::NONE => value |= 0x00 << 8,
+            ftdi_parity_type::ODD => value |= 0x01 << 8,
+            ftdi_parity_type::EVEN => value |= 0x02 << 8,
+            ftdi_parity_type::MARK => value |= 0x03 << 8,
+            ftdi_parity_type::SPACE => value |= 0x04 << 8,
+        }
+
+        match sbit {
+            ftdi_stopbits_type::STOP_BIT_1 => value |= 0x00 << 11,
+            ftdi_stopbits_type::STOP_BIT_15 => value |= 0x01 << 11,
+            ftdi_stopbits_type::STOP_BIT_2 => value |= 0x02 << 11,
+        }
+
+        match break_type {
+            ftdi_break_type::BREAK_OFF => value |= 0x00 << 14,
+            ftdi_break_type::BREAK_ON => value |= 0x01 << 14,
+        }
+
+        let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
+        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                                FTDI_DEVICE_OUT_REQTYPE,
+                                                SIO_SET_BAUDRATE_REQUEST,
+                                                value,
+                                                self.index as u16, null_data_ptr,
+                                                0,
+                                                self.usb_write_timeout as c_uint)} < 0 {
+            let error = FtdiError::UsbCommandError {code: -1, message: "Setting new line property failed".to_string()};
+            error!("{}", error);
+            return Err(error);
+        }
+        debug!("\'ftdi_set_line_property2\' = OK");
+        Ok(())
+    }
 }
 
 impl Drop for ftdi_context {
