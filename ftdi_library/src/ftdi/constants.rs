@@ -11,6 +11,7 @@ pub const FTDI_VERSION_STRING: &str = "1.5.0";
 pub const FTDI_SNAPSHOT_VERSION: &str = "v1.5rc1";
 
 /// FTDI chip type
+#[non_exhaustive]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum ftdi_chip_type {

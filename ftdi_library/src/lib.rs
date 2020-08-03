@@ -51,4 +51,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn parse_vendor_product_index_ok() {
+        let values = vec![
+            ("s:12:34:0", vec![12u16, 34u16, 0u16]),
+            ("i:400:400", vec![400u16, 400u16]),
+            ("i:400:400:0", vec![400u16, 400u16, 0u16]),
+            ("s:400:400:0", vec![400u16, 400u16, 0u16]),
+        ];
+        for (mut input, expected) in values {
+            let result = ftdi_context::parse_vendor_product_index(&input);
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "")]
+    fn parse_vendor_product_index_fail() {
+
+    }
+
 }

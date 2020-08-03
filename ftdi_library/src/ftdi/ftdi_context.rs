@@ -481,7 +481,9 @@ impl ftdi_context {
         } else if description.starts_with('i') || description.starts_with('s') {
             // starts with 'i' or 's' letter
             // parse 'decription' by splitting into 2 or 3 parts by ':' delimiter
-            let device_name_parts:Vec<&str> = description.split(':').collect();
+            let device_name_parts:Vec<u16> = ftdi_context::parse_vendor_product_index(
+                description
+            );
 
         } else {
             let error = FtdiError::UsbCommonError { code: -11,
@@ -492,11 +494,20 @@ impl ftdi_context {
         unimplemented!()
     }
 
-    fn parse_vendor_product_index(description: &str) -> Vec<u16> {
-        let without_prefix = description.trim_start_matches("0x");
-        let z = i64::from_str_radix(without_prefix, 16);
-        println!("{:?}", z);
-        unimplemented!()
+    pub(crate) fn parse_vendor_product_index(description: &str) -> Vec<u16> {
+        debug!("parse_vendor_product_index : {}", description);
+        // description.strip_prefix(|start_char: char| start_char.starts_with('i')
+        //         || start_char.starts_with('s'));
+        let device_name_parts:Vec<&str> = description.split(':').collect();
+        let vector_size = device_name_parts.len();
+        let result_vec = Vec::with_capacity(vector_size);
+        for (index, one_item) in device_name_parts.iter().enumerate() {
+
+        }
+        let without_prefix = description.trim_start_matches("0x"); // "0o52"
+        let parse_result = u16::from_str_radix(without_prefix, 16);
+        debug!("parse_result = {:?}", parse_result);
+        result_vec
     }
 
     fn ftdi_read_chipid_shift(value: u32) -> u32 {
