@@ -481,7 +481,7 @@ impl ftdi_context {
         } else if description.starts_with('i') || description.starts_with('s') {
             // starts with 'i' or 's' letter
             // parse 'decription' by splitting into 2 or 3 parts by ':' delimiter
-            let device_name_parts:Vec<u16> = ftdi_context::parse_vendor_product_index(
+            let device_name_parts = ftdi_context::parse_vendor_product_index(
                 description
             );
 
@@ -494,20 +494,53 @@ impl ftdi_context {
         unimplemented!()
     }
 
-    pub(crate) fn parse_vendor_product_index(description: &str) -> Vec<u16> {
+    /// Parse vendor/product string supplied in specific format
+    /// Return Vector with appropriate numbers OR error
+    pub(crate) fn parse_vendor_product_index(description: &str) -> Result<Vec<u16>> {
         debug!("parse_vendor_product_index : {}", description);
+        println!("parse_vendor_product_index : {}", description);
         // description.strip_prefix(|start_char: char| start_char.starts_with('i')
         //         || start_char.starts_with('s'));
         let device_name_parts:Vec<&str> = description.split(':').collect();
         let vector_size = device_name_parts.len();
-        let result_vec = Vec::with_capacity(vector_size);
+        println!("device_name_parts : {}", vector_size);
+        // match vector_size {
+        //     0 => {
+        //     }
+        // }
+        let mut result_vec = Vec::with_capacity(vector_size);
         for (index, one_item) in device_name_parts.iter().enumerate() {
-
+            println!("device_name_part: {} : {}", index, one_item);
+            if one_item.starts_with("s") || one_item.starts_with("i") {
+                println!("device_name_part skipped: {}...", one_item);
+                continue; // skip first s/i letter
+            }
+            if one_item.starts_with("0x") { // HEX value
+                let without_prefix = one_item.trim_start_matches("0x"); // "0o52"
+                println!("without_prefix 0x = {:?}", without_prefix);
+                let parse_result = u16::from_str_radix(without_prefix, 16);
+                if parse_result.is_ok() {
+                    result_vec.push(parse_result.unwrap());
+                }
+            } else if one_item.starts_with("0o") { // Octet value
+                let without_prefix = one_item.trim_start_matches("0o"); // "0o52"
+                println!("without_prefix 0o = {:?}", without_prefix);
+                let parse_result = u16::from_str_radix(without_prefix, 8);
+                if parse_result.is_ok() {
+                    result_vec.push(parse_result.unwrap());
+                }
+            } else { // DECIMAL value
+                let without_prefix = one_item; // "0o52"
+                println!("without_prefix 0 = {:?}", without_prefix);
+                let parse_result = u16::from_str_radix(without_prefix, 10);
+                if parse_result.is_ok() {
+                    result_vec.push(parse_result.unwrap());
+                }
+            }
+            println!("parse_result = {:?}", result_vec);
+            debug!("parse_result = {:?}", result_vec);
         }
-        let without_prefix = description.trim_start_matches("0x"); // "0o52"
-        let parse_result = u16::from_str_radix(without_prefix, 16);
-        debug!("parse_result = {:?}", parse_result);
-        result_vec
+        Ok(result_vec)
     }
 
     fn ftdi_read_chipid_shift(value: u32) -> u32 {
