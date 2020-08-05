@@ -17,7 +17,7 @@ use crate::ftdi::ftdi_context::ftdi_context;
 
 pub type Result<T, E = FtdiError> = std::result::Result<T, E>;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, PartialEq, Snafu)]
 pub enum FtdiError {
     #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'", code, message))]
     UsbInit {

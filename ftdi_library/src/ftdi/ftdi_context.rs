@@ -434,8 +434,7 @@ impl ftdi_context {
             error!("{}", error);
             return Err(error);
         }
-        if description.len() == 0 || !description.contains(':')
-            /*|| !description.starts_with("d:")*/ {
+        if description.len() == 0 || !description.contains(':') {
             let error = FtdiError::UsbCommonError { code: -11,
                 message: "illegal \'description\' format, expected value = d:".to_string() };
             error!("{}", error);
@@ -483,7 +482,7 @@ impl ftdi_context {
             // parse 'decription' by splitting into 2 or 3 parts by ':' delimiter
             let device_name_parts = ftdi_context::parse_vendor_product_index(
                 description
-            );
+            )?;
 
         } else {
             let error = FtdiError::UsbCommonError { code: -11,
@@ -497,17 +496,40 @@ impl ftdi_context {
     /// Parse vendor/product string supplied in specific format
     /// Return Vector with appropriate numbers OR error
     pub(crate) fn parse_vendor_product_index(description: &str) -> Result<Vec<u16>> {
-        debug!("parse_vendor_product_index : {}", description);
-        println!("parse_vendor_product_index : {}", description);
-        // description.strip_prefix(|start_char: char| start_char.starts_with('i')
-        //         || start_char.starts_with('s'));
+        debug!("parse_vendor_product_index : \'{}\'", description);
+        println!("parse_vendor_product_index : \'{}\'", description);
+        if description.len() == 0 || !description.contains(':') {
+            let error = FtdiError::UsbCommonError { code: -11,
+                message: "incorrect 'description' format or length, see format explanation in code".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
         let device_name_parts:Vec<&str> = description.split(':').collect();
         let vector_size = device_name_parts.len();
         println!("device_name_parts : {}", vector_size);
-        // match vector_size {
-        //     0 => {
-        //     }
-        // }
+        match vector_size {
+            0..=2 => {
+                let error = FtdiError::UsbCommonError { code: -12,
+                    message: "incorrect 'description' format, vendor and product is minimal set".to_string() };
+                error!("{}", error);
+                return Err(error);
+            }
+            // 2 => {
+            //     let error = FtdiError::UsbCommonError { code: -13,
+            //         message: "incorrect 'description' format, vendor and product is minimal set".to_string() };
+            //     error!("{}", error);
+            //     return Err(error);
+            // }
+            5..=usize::MAX => {
+                let error = FtdiError::UsbCommonError { code: -14,
+                    message: "incorrect 'description' format is too long".to_string() };
+                error!("{}", error);
+                return Err(error);
+            }
+            _ => {
+                // no problems
+            }
+        }
         let mut result_vec = Vec::with_capacity(vector_size);
         for (index, one_item) in device_name_parts.iter().enumerate() {
             println!("device_name_part: {} : {}", index, one_item);
@@ -517,24 +539,42 @@ impl ftdi_context {
             }
             if one_item.starts_with("0x") { // HEX value
                 let without_prefix = one_item.trim_start_matches("0x"); // "0o52"
-                println!("without_prefix 0x = {:?}", without_prefix);
+                println!("without_prefix - 0x = {:?}", without_prefix);
                 let parse_result = u16::from_str_radix(without_prefix, 16);
+                println!("parse_result - 0x = {:?}", parse_result);
                 if parse_result.is_ok() {
                     result_vec.push(parse_result.unwrap());
+                } else {
+                    let error = FtdiError::UsbCommonError { code: -15,
+                        message: "HEX value parse error".to_string() };
+                    error!("{} - {:?}", error, parse_result.err());
+                    return Err(error);
                 }
             } else if one_item.starts_with("0o") { // Octet value
                 let without_prefix = one_item.trim_start_matches("0o"); // "0o52"
-                println!("without_prefix 0o = {:?}", without_prefix);
+                println!("without_prefix - 0o = {:?}", without_prefix);
                 let parse_result = u16::from_str_radix(without_prefix, 8);
+                println!("parse_result - 0o = {:?}", parse_result);
                 if parse_result.is_ok() {
                     result_vec.push(parse_result.unwrap());
+                } else {
+                    let error = FtdiError::UsbCommonError { code: -16,
+                        message: "Octal value parse error".to_string() };
+                    error!("{} - {:?}", error, parse_result.err());
+                    return Err(error);
                 }
             } else { // DECIMAL value
-                let without_prefix = one_item; // "0o52"
-                println!("without_prefix 0 = {:?}", without_prefix);
+                let without_prefix = one_item; // "0394"
+                println!("without_prefix - 0 = {:?}", without_prefix);
                 let parse_result = u16::from_str_radix(without_prefix, 10);
+                println!("parse_result - 0 = {:?}", parse_result);
                 if parse_result.is_ok() {
                     result_vec.push(parse_result.unwrap());
+                } else {
+                    let error = FtdiError::UsbCommonError { code: -17,
+                        message: "Decimal value parse error".to_string() };
+                    error!("{} - {:?}", error, parse_result.err());
+                    return Err(error);
                 }
             }
             println!("parse_result = {:?}", result_vec);
