@@ -120,6 +120,7 @@ impl ftdi_context {
             _                               => FtdiError::UsbInit{code: -1000, message: "unknown error".to_string()},
         }
     }
+
     /// Allocate and initialize a new ftdi_context.
     ///
     /// ```rust,no_run
@@ -312,7 +313,7 @@ impl ftdi_context {
     }
 
     /// Opens the first device with a given vendor and product ids.
-    // ftdi_context should be previously initialized otherwise return error.
+    /// ftdi_context should be previously initialized otherwise return error.
     /// vendor is Vendor ID value
     /// product is Product ID value
     /// return same as ftdi_usb_open_desc()
@@ -411,12 +412,25 @@ impl ftdi_context {
 
     ///  Opens the device at a given USB bus and device address.
     ///
-    ///  param bus Bus number
-    ///  param addr Device address
-    pub fn ftdi_usb_open_bus_addr(self, bus: u16, addr: u16) -> Result<()> {
+    ///  param bus_number Bus number
+    ///  param device_address Device address
+    pub fn ftdi_usb_open_bus_addr(&mut self, bus_number: u16, device_address: u16) -> Result<()> {
         debug!("start \'ftdi_usb_open_bus_addr\' ...");
         let device_list = ftdi_device_list::new(&self)?;
-        unimplemented!()
+
+        // try get device number and address
+        let sys_device_list = unsafe { slice::from_raw_parts(
+            device_list.system_device_list.unwrap(), device_list.number_found_devices) };
+        // loop over usb list
+        for dev in sys_device_list {
+            if bus_number == unsafe { ffi::libusb_get_bus_number(*dev) } as u16
+                && device_address == unsafe { ffi::libusb_get_device_address(*dev) } as u16 {
+                self.ftdi_usb_open_dev(dev)?; // usb device found and opened
+                debug!("FOUND \'ftdi_usb_open_string\' - OK by {} : {}", bus_number, device_address);
+                return Ok(());
+            }
+        }
+        Ok(())
     }
 
     /// Opens the ftdi-device described by a description-string.
@@ -477,12 +491,28 @@ impl ftdi_context {
                     return Err(error);
                 }
             }
+
         } else if description.starts_with('i') || description.starts_with('s') {
             // starts with 'i' or 's' letter
-            // parse 'decription' by splitting into 2 or 3 parts by ':' delimiter
+            // parse 'description' by splitting into 2 or 3 parts by ':' delimiter
             let device_name_parts = ftdi_context::parse_vendor_product_index(
-                description
-            )?;
+                description )?;
+            // check result
+            match device_name_parts.len() {
+                2 => {
+                    self.ftdi_usb_open_desc_index(device_name_parts[0],
+                                                  device_name_parts[1],
+                                                  None, None,
+                                                  0)?;
+                }
+                3 => {
+                    self.ftdi_usb_open_desc_index(device_name_parts[0],
+                                                  device_name_parts[1],
+                                                  None, None,
+                                                  device_name_parts[2] as usize)?;
+                }
+                _ => { /* all is fine */ }
+            }
 
         } else {
             let error = FtdiError::UsbCommonError { code: -11,
@@ -490,7 +520,7 @@ impl ftdi_context {
             error!("{}", error);
             return Err(error);
         }
-        unimplemented!()
+        Ok(())
     }
 
     /// Parse vendor/product string supplied in specific format
@@ -514,12 +544,6 @@ impl ftdi_context {
                 error!("{}", error);
                 return Err(error);
             }
-            // 2 => {
-            //     let error = FtdiError::UsbCommonError { code: -13,
-            //         message: "incorrect 'description' format, vendor and product is minimal set".to_string() };
-            //     error!("{}", error);
-            //     return Err(error);
-            // }
             5..=usize::MAX => {
                 let error = FtdiError::UsbCommonError { code: -14,
                     message: "incorrect 'description' format is too long".to_string() };
@@ -583,6 +607,8 @@ impl ftdi_context {
         Ok(result_vec)
     }
 
+    /// ftdi_read_chipid_shift does the bitshift operation needed for the FTDIChip-ID
+    /// It is used internally only
     fn ftdi_read_chipid_shift(value: u32) -> u32 {
         ((value & 1) << 1) |
             ((value & 2) << 5) |
@@ -672,6 +698,7 @@ impl ftdi_context {
             self.ftdi_usb_get_strings2(self.usb_dev.unwrap())
         }
     }
+
     /// Return device ID strings from the usb device.
     ///
     /// The parameter's manufacturer, description and serial may be None
@@ -1097,7 +1124,7 @@ impl ftdi_context {
     const C_CLK: i32 =  48000000;
 
     /// ftdi_convert_baudrate returns nearest supported baud rate to that requested.
-    //  Function is only used internally
+    ///  Function is only used internally
     fn ftdi_convert_baudrate(&mut self, baudrate: i32, value: &mut u16, index: &mut u16) -> i32 {
         debug!("start \'ftdi_convert_baudrate\' ...");
         let mut best_baud = -1;

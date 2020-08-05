@@ -78,6 +78,8 @@ mod tests {
         let values: Vec<(&str, std::result::Result<std::vec::Vec<u16>, FtdiError>)> = vec![
             ("", Err(FtdiError::UsbCommonError{code: -11,
                 message:"incorrect 'description' format or length, see format explanation in code".to_string()})),
+            ("  ", Err(FtdiError::UsbCommonError{code: -11,
+                message:"incorrect 'description' format or length, see format explanation in code".to_string()})),
             ("empty", Err(FtdiError::UsbCommonError{code: -11,
                 message:"incorrect 'description' format or length, see format explanation in code".to_string()})),
             ("s:", Err(FtdiError::UsbCommonError{code: -12,
