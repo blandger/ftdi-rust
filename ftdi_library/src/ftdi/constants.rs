@@ -318,6 +318,9 @@ pub const SIO_ERASE_EEPROM_REQUEST: u8 = 0x92;
 
 pub const SIO_RESET_SIO: u8 = 0;
 
+pub const SIO_RESET_PURGE_RX: u8 = 1;
+pub const SIO_RESET_PURGE_TX: u8 = 2;
+
 /// New names for the values used internally to flush (purge).
 pub const SIO_TCIFLUSH: u8 = 2;
 pub const SIO_TCOFLUSH: u8 = 1;
