@@ -1149,32 +1149,45 @@ impl ftdi_context {
         Ok(())
     }
 
-    pub fn ftdi_write_data(&self, buf: &Vec<u8>) -> Result<usize> {
+    pub fn ftdi_write_data(&self, buffer: &mut Vec<u8>) -> Result<usize> {
         debug!("start 'ftdi_write_data' ...");
         self.check_usb_device()?;
 
-        let mut offset:usize = 0;
-        let mut actual_length:usize = 0;
-        let size = buf.len();
-        while offset < size {
-            let write_size: usize = self.writebuffer_chunksize as usize;
-            if offset + write_size > size {
-/*                if unsafe {ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),
-                                                     self.in_ep as c_uchar,
-                                                     &buf[offset] as c_uchar,
-                                                     write_size as c_int,
-                                                     actual_length as c_int,
-                                                     self.usb_write_timeout as c_uint )} < 0 {
-                    let error = FtdiError::UsbCommandError { code: -1, message: "Setting new line property failed".to_string() };
-                    error!("{}", error);
-                    return Err(error);
-                }
-*/            }
-            offset += actual_length;
+        let mut offset: u32 = 0;
+        let full_buf_size = buffer.len();
+        if full_buf_size <= 0 {
+            warn!("Data buffer is empty, nothing write to usb [{}]", full_buf_size);
+            return Ok(full_buf_size);
         }
-
+        let mut buf_data_ptr: *mut c_uchar;
+        let actualy_written_data_length: u32 = 0;
+        let actual_written_data_length_ptr: *mut c_int = actualy_written_data_length as *mut c_int;
+        while (offset as usize) < full_buf_size {
+            let mut write_size = self.writebuffer_chunksize;
+            if offset + write_size < full_buf_size as u32 {
+                let upper_bound = offset + write_size;
+                buf_data_ptr = buffer[(offset as usize)..(upper_bound as usize)].as_mut_ptr() as *mut c_uchar;
+            } else {
+                let lower_bound = (full_buf_size - (offset + write_size) as usize) as usize;
+                write_size = (full_buf_size - lower_bound) as u32;
+                buf_data_ptr = buffer[lower_bound..].as_mut_ptr() as *mut c_uchar;
+            }
+            if unsafe {
+                ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),
+                                          self.in_ep as c_uchar,
+                                          buf_data_ptr,
+                                          write_size as c_int,
+                                          actual_written_data_length_ptr,
+                                          self.usb_write_timeout as c_uint )} < 0 {
+                let error = FtdiError::UsbCommandError { code: -1,
+                    message: "usb bulk write failed".to_string() };
+                error!("actual_written_data_length = [{:?}], {}", actual_written_data_length_ptr, error);
+                return Err(error);
+            }
+            offset += actualy_written_data_length;
+        }
         debug!("'ftdi_write_data' - OK");
-        unimplemented!()
+        Ok(full_buf_size)
     }
 
     /// Parse vendor/product string supplied in specific format
