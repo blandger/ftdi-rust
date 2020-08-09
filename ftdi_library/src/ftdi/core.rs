@@ -44,6 +44,7 @@ pub struct ftdi_transfer_control {
     pub size: usize,
     pub offset: isize,
     pub ftdi: Arc<Mutex<ftdi_context>>,
+    // pub ftdi: Option<*mut ffi::libusb_context>,
     // pub transfer: ffi::libusb_transfer,
     pub transfer: Arc<Mutex<ffi::libusb_transfer>>,
 }

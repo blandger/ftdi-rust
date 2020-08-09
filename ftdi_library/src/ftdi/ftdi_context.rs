@@ -4,11 +4,12 @@
 #![allow(unused_imports)]
 
 use libusb_sys as ffi;
-use libc::{c_int,c_uchar, EPERM};
+use libc::{c_int,c_uchar, EPERM, c_void};
 use std::{
     fmt::{Display, Formatter, Debug},
     sync::{Arc, Mutex},
-    mem::{MaybeUninit}, slice, io, ptr,
+    mem::{MaybeUninit, transmute},
+    slice, io, ptr,
     os::raw::{c_uint, c_ushort},
     any::Any,
     ptr::null,
@@ -18,7 +19,7 @@ use log::{debug, info, warn, error};
 use linuxver::version;
 use crate::ftdi::{
     constants::{*},
-    core::{FtdiError, Result},
+    core::{FtdiError, Result, ftdi_transfer_control},
     ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor},
     eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE}
 };
@@ -318,7 +319,7 @@ impl ftdi_context {
     }
 
     fn check_usb_context_initialized(&self) -> Result<()> {
-        if self.usb_ctx == None {
+        if self.usb_ctx.is_none() {
             let error = FtdiError::UsbInit { code: -8, message: "ftdi context is not initialized previously".to_string() };
             error!("{}", error);
             return Err(error);
@@ -1188,6 +1189,32 @@ impl ftdi_context {
         }
         debug!("'ftdi_write_data' - OK");
         Ok(full_buf_size)
+    }
+
+    pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) -> Result<()> {
+/*        let tc: ftdi_transfer_control = (*transfer).user_data as ftdi_transfer_control;
+        if tc.ftdi.is_none() {
+            let error = FtdiError::UsbInit { code: -8, message: "ftdi context is not initialized by ftdi_transfer_control".to_string() };
+            error!("{}", error);
+            return Err(error);
+
+        }
+        let ftdi = tc.ftdi.unwrap();
+        let packet_size = ftdi.max_packet_size;
+*/
+        unimplemented!()
+    }
+
+    pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
+        where F: FnMut(*mut ffi::libusb_transfer) -> Result<()> {
+        let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = &mut callback;
+        let ctx = &mut cb as *mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> as *mut c_void;
+        debug!("ctx: {:?}", ctx);
+        let cb2: *mut *mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = unsafe { transmute(ctx) };
+        println!("cb2: {:?}", cb2);
+        // this is more useful, but can't be printed, because not implement Debug
+        let closure: &mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = unsafe { transmute(ctx) };
+        unimplemented!()
     }
 
     /// Parse vendor/product string supplied in specific format
