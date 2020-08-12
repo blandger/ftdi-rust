@@ -48,6 +48,20 @@ pub struct ftdi_transfer_control {
     // pub transfer: ffi::libusb_transfer,
     pub transfer: Arc<Mutex<ffi::libusb_transfer>>,
 }
+impl Default for ftdi_transfer_control {
+    fn default() -> Self {
+        let libusb_transfer_uninit = MaybeUninit::<ffi::libusb_transfer>::zeroed();
+        let libusb_transfer = unsafe { libusb_transfer_uninit.assume_init() };
+        ftdi_transfer_control {
+            completed: 0,
+            buf: Vec::new(),
+            size: 0,
+            offset: 0,
+            ftdi: Arc::new(Mutex::new(ftdi_context::default())),
+            transfer: Arc::new(Mutex::new( libusb_transfer ))
+        }
+    }
+}
 
 enum ftdi_cbus_func {
     CBUS_TXDEN = 0, CBUS_PWREN = 1, CBUS_RXLED = 2, CBUS_TXLED = 3, CBUS_TXRXLED = 4,

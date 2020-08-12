@@ -98,7 +98,33 @@ impl Debug for ftdi_context {
         )
     }
 }
-
+impl Default for ftdi_context {
+    fn default() -> Self {
+        ftdi_context {
+            usb_ctx: None,
+            usb_dev: None, // usb device to be assigned if it's found
+            usb_read_timeout: 5000,
+            usb_write_timeout: 5000,
+            r#type: ftdi_chip_type::TYPE_BM,
+            baudrate: -1,
+            bitbang_enabled: false,
+            readbuffer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
+            readbuffer_offset: 0,
+            readbuffer_remaining: 0,
+            readbuffer_chunksize: 0,
+            writebuffer_chunksize: WRITE_BUFFER_CHUNKSIZE,
+            max_packet_size: 0,
+            interface: 0,
+            index: 0,
+            in_ep: 0,
+            out_ep: 0,
+            bitbang_mode: 0,
+            eeprom: ftdi_eeprom::default(),
+            error_str: 0,
+            module_detach_mode: ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE,
+        }
+    }
+}
 
 impl ftdi_context {
     // several internal constants
@@ -156,11 +182,9 @@ impl ftdi_context {
     /// ```
     pub fn new() -> Result<Self> {
         debug!("start \'new\' ftdi context creation...");
-        // let mut context: MaybeUninit<*mut ffi::libusb_context> = unsafe { MaybeUninit::uninit().assume_init() };
+        // let context_uninit: MaybeUninit::<ffi::libusb_context>::zeroed();
+        // let mut context: *mut ffi::libusb_context = unsafe { context_uninit.assume_init() };
         let mut context: *mut ffi::libusb_context = unsafe { MaybeUninit::uninit().assume_init() };
-        // let _: [MaybeUninit<bool>; 5] = unsafe {
-        //     MaybeUninit::uninit().assume_init()
-        // };
         debug!("ftdi context before init...");
         match unsafe { ffi::libusb_init(&mut context/*.as_mut_ptr()*/) } {
             0 => {
@@ -175,64 +199,7 @@ impl ftdi_context {
         };
         // calculate max buffer size depending on OS
         let calculated_max_chunk_size = ftdi_context::check_and_calculate_buffer_size();
-        let ftdi_eeprom = ftdi_eeprom {
-            vendor_id: 0,
-            product_id: 0,
-            initialized_for_connected_device: false,
-            self_powered: 0,
-            remote_wakeup: 0,
-            is_not_pnp: false,
-            suspend_dbus7: 0,
-            in_is_isochronous: false,
-            out_is_isochronous: false,
-            suspend_pull_downs: 0,
-            use_serial: false,
-            usb_version: 0,
-            use_usb_version: 0,
-            max_power: 0,
-            manufacturer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
-            product: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
-            serial: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
-            channel_a_type: 0,
-            channel_b_type: 0,
-            channel_a_driver: 0,
-            channel_b_driver: 0,
-            channel_c_driver: 0,
-            channel_d_driver: 0,
-            channel_a_rs485enable: false,
-            channel_b_rs485enable: false,
-            channel_c_rs485enable: false,
-            channel_d_rs485enable: false,
-            cbus_function: Box::new([0i32; 10]),
-            high_current: 0,
-            high_current_a: 0,
-            high_current_b: 0,
-            invert: 0,
-            external_oscillator: 0,
-            group0_drive: 0,
-            group0_schmitt: 0,
-            group0_slew: 0,
-            group1_drive: 0,
-            group1_schmitt: 0,
-            group1_slew: 0,
-            group2_drive: 0,
-            group2_schmitt: 0,
-            group2_slew: 0,
-            group3_drive: 0,
-            group3_schmitt: 0,
-            group3_slew: 0,
-            powersave: 0,
-            clock_polarity: 0,
-            data_order: 0,
-            flow_control: 0,
-            user_data_addr: 0,
-            user_data_size: 0,
-            user_data: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
-            size: 0,
-            chip: 0,
-            buf: Vec::with_capacity(calculated_max_chunk_size as usize),
-            release_number: 0,
-        };
+        let ftdi_eeprom = ftdi_eeprom::default();
         debug!("ftdi context is DONE!");
         Ok(
             ftdi_context {
@@ -368,6 +335,9 @@ impl ftdi_context {
     fn ftdi_usb_get_strings2(&self, device_handle: *mut ffi::libusb_device_handle)
                              -> Result<(Option<String>, Option<String>, Option<String>)> {
         debug!("start \'ftdi_usb_get_strings\' ...");
+        // let descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor>::zeroed();
+        // let descriptor_uninit: std::mem::MaybeUninit<ffi::libusb_device_descriptor> as Trait>::zeroed;
+        // let mut descriptor = unsafe { descriptor_uninit.assume_init() };
         let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
         let has_descriptor = match unsafe {
             ffi::libusb_get_device_descriptor(device_handle.cast(), &mut descriptor) } {
@@ -1207,6 +1177,13 @@ impl ftdi_context {
 
     pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
         where F: FnMut(*mut ffi::libusb_transfer) -> Result<()> {
+        debug!("start ftdi_read_data_submit... buffer_size = [{}]", buffer.len());
+        self.check_usb_device()?;
+        let tc: ftdi_transfer_control = ftdi_transfer_control::default();
+        let transfer: ffi::libusb_transfer;
+
+        // tc = Box::new(ftdi_transfer_control).deref();
+
         let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = &mut callback;
         let ctx = &mut cb as *mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> as *mut c_void;
         debug!("ctx: {:?}", ctx);
@@ -1214,6 +1191,8 @@ impl ftdi_context {
         println!("cb2: {:?}", cb2);
         // this is more useful, but can't be printed, because not implement Debug
         let closure: &mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = unsafe { transmute(ctx) };
+
+
         unimplemented!()
     }
 
