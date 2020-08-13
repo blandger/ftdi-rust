@@ -335,12 +335,15 @@ impl ftdi_context {
     fn ftdi_usb_get_strings2(&self, device_handle: *mut ffi::libusb_device_handle)
                              -> Result<(Option<String>, Option<String>, Option<String>)> {
         debug!("start \'ftdi_usb_get_strings\' ...");
-        // let descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor>::zeroed();
+        let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
+        // unsafe { descriptor_uninit.as_mut_ptr().write(true); }
         // let descriptor_uninit: std::mem::MaybeUninit<ffi::libusb_device_descriptor> as Trait>::zeroed;
         // let mut descriptor = unsafe { descriptor_uninit.assume_init() };
-        let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-        let has_descriptor = match unsafe {
-            ffi::libusb_get_device_descriptor(device_handle.cast(), &mut descriptor) } {
+        let mut read_descriptor_result = unsafe {
+            ffi::libusb_get_device_descriptor(device_handle.cast(), descriptor_uninit.as_mut_ptr())
+        };
+        let descriptor = unsafe { descriptor_uninit.assume_init() };
+        let has_descriptor = match read_descriptor_result {
             0 => {
                 true
             },
