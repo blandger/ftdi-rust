@@ -182,13 +182,13 @@ impl ftdi_context {
     /// ```
     pub fn new() -> Result<Self> {
         debug!("start \'new\' ftdi context creation...");
-        // let context_uninit: MaybeUninit::<ffi::libusb_context>::zeroed();
-        // let mut context: *mut ffi::libusb_context = unsafe { context_uninit.assume_init() };
-        let mut context: *mut ffi::libusb_context = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut context_uninit: MaybeUninit::<*mut ffi::libusb_context> = MaybeUninit::uninit();
+        let context: *mut ffi::libusb_context;
         debug!("ftdi context before init...");
-        match unsafe { ffi::libusb_init(&mut context/*.as_mut_ptr()*/) } {
+        match unsafe { ffi::libusb_init(context_uninit.as_mut_ptr()) } {
             0 => {
                 debug!("ftdi context initialized - OK!");
+                context = unsafe { context_uninit.assume_init() }
             },
             sys_error => {
                 // Err(ftdi_context::get_error(e))
@@ -339,10 +339,9 @@ impl ftdi_context {
         // unsafe { descriptor_uninit.as_mut_ptr().write(true); }
         // let descriptor_uninit: std::mem::MaybeUninit<ffi::libusb_device_descriptor> as Trait>::zeroed;
         // let mut descriptor = unsafe { descriptor_uninit.assume_init() };
-        let mut read_descriptor_result = unsafe {
+        let read_descriptor_result = unsafe {
             ffi::libusb_get_device_descriptor(device_handle.cast(), descriptor_uninit.as_mut_ptr())
         };
-        let descriptor = unsafe { descriptor_uninit.assume_init() };
         let has_descriptor = match read_descriptor_result {
             0 => {
                 true
@@ -353,6 +352,7 @@ impl ftdi_context {
             },
         };
         if has_descriptor {
+            let descriptor = unsafe { descriptor_uninit.assume_init() };
             info!("USB ID : {:04x} : {:04x} : {}", descriptor.idVendor, descriptor.idProduct, descriptor.iSerialNumber);
             print_debug_device_descriptor(device_handle, &descriptor, 0);
 
