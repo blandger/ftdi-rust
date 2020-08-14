@@ -47,7 +47,7 @@ impl ftdi_device_list {
     ///  ftdi_device_list which is deallocated automatically after use and going out of scope.
     ///  With VID:PID 0:0, it searches for the default devices
     ///  (0x403:0x6001, 0x403:0x6010, 0x403:0x6011, 0x403:0x6014, 0x403:0x6015)
-    //
+    ///
     ///   param ftdi is ftdi_context to create
     ///   devlist is stored in devices field 'system_device_list' field
     ///   \param vendor Vendor ID to search for
@@ -90,9 +90,9 @@ impl ftdi_device_list {
         for dev in sys_device_list {
 
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
-            let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+            let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
             // get description from usb device
-            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
+            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, descriptor_uninit.as_mut_ptr()) } {
                 0 => {
                     true
                 },
@@ -103,6 +103,7 @@ impl ftdi_device_list {
             };
             let handle: *mut ffi::libusb_device_handle = ptr::null_mut();
             if has_descriptor {
+                let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
                 info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
                 // extract usb devices only specified by vendor and product ids
                 if (vendor > 0 || product > 0 &&
@@ -120,7 +121,7 @@ impl ftdi_device_list {
             }
             usb_dev_index += 1;
         }
-        let list = ftdi_device_list{ // TODO: fix to correct way
+        let list = ftdi_device_list{
             number_found_devices: found_usb_count,
             // system_device_list: Some(sys_device_list.as_ptr())
             system_device_list: None
@@ -136,17 +137,17 @@ impl ftdi_device_list {
     /// Helper internal method to fetch usb device list.
     /// Return tuple with found list and found device quantity
     fn get_usb_device_list_internal(ftdi: &ftdi_context) -> Result< (*const *mut ffi::libusb_device, isize) > {
-        let mut device_list: *const *mut ffi::libusb_device = unsafe {
-            MaybeUninit::uninit().assume_init()
-        };
-        let devices_len = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx.unwrap(), &mut device_list) };
-        if devices_len < 0 {
+        let mut device_list_uninit: MaybeUninit::<*const *mut ffi::libusb_device> = MaybeUninit::uninit();
+
+        let get_device_list_result = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx.unwrap(), device_list_uninit.as_mut_ptr()) };
+        if get_device_list_result < 0 {
             let result = FtdiError::UsbCommandError { code: -5, message: "libusb_get_device_list() failed".to_string() };
             error!("{}", result);
             return Err(result);
         }
-        debug!("found total usb device(s) quantity = [{}]", devices_len);
-        Ok( (device_list, devices_len) )
+        let device_list: *const *mut ffi::libusb_device = unsafe { device_list_uninit.assume_init() };
+        debug!("found total usb device(s) quantity = [{}]", get_device_list_result);
+        Ok( (device_list, get_device_list_result) )
     }
 }
 impl Drop for ftdi_device_list {

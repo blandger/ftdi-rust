@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
-#![allow(const_err)] // TODO: check later
+#![allow(const_err)] // TODO: check later without that
 
 use libusb_sys as ffi;
 
@@ -333,8 +333,8 @@ pub const SIO_XON_XOFF_HS: u8 = (0x4 << 8) as u8;
 pub const SIO_SET_DTR_MASK: u8 = 0x1;
 pub const SIO_SET_DTR_HIGH: u8 = (1 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u8;
 // pub const SIO_SET_DTR_LOW: u8 = (0 | ((SIO_SET_DTR_MASK << 8) as u8) as u8) as u8;
-pub const SIO_SET_DTR_LOW: u8 = ((SIO_SET_RTS_MASK << 8) as u8) as u8;
 pub const SIO_SET_RTS_MASK: u8 = 0x2;
+pub const SIO_SET_DTR_LOW: u8 = ((SIO_SET_RTS_MASK << 8) as u8) as u8;
 pub const SIO_SET_RTS_HIGH: u8 = (2 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
 // pub const SIO_SET_RTS_LOW: u8 = (0 | ((SIO_SET_RTS_MASK << 8) as u8) as u8) as u8;
 pub const SIO_SET_RTS_LOW: u8 = ((SIO_SET_RTS_MASK << 8) as u8) as u8;

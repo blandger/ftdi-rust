@@ -379,29 +379,31 @@ impl ftdi_context {
         // check ftdi context
         self.check_usb_context_initialized()?;
 
-        let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-        if unsafe { ffi::libusb_open(dev.cast(), &mut handle ) } < 0 {
+        let mut device_handle: *mut ffi::libusb_device_handle = ptr::null_mut();
+        if unsafe { ffi::libusb_open(dev.cast(), &mut device_handle) } < 0 {
             warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
             let error = FtdiError::UsbInit { code: -4, message: "libusb_open() failed".to_string() };
             error!("{}", error);
             return Err(error);
         }
-        // self.usb_dev = Some(handle);
 
-        let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-        let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-        if unsafe { ffi::libusb_get_device_descriptor(handle.cast(), &mut descriptor) } < 0 {
+        let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_device_descriptor(device_handle.cast(), descriptor_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
             error!("{}", error);
             return Err(error);
         };
-        if unsafe { ffi::libusb_get_config_descriptor(handle.cast(), 0, configuraton0) } < 0 {
+        let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
+
+        let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_config_descriptor(device_handle.cast(), 0, *configuraton_uninit.as_ptr()) } < 0 {
             let error = FtdiError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
             error!("{}", error);
             return Err(error);
         };
-        let cfg0: c_int = unsafe { (*(*configuraton0)).bConfigurationValue as c_int};
-        unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
+        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuraton_uninit.assume_init() };
+        let cfg0: c_int = unsafe { (*(*configuraton)).bConfigurationValue as c_int};
+        unsafe { ffi::libusb_free_config_descriptor(*configuraton) };
 
         let mut detach_errno = 0;
         let cfg: *mut c_int = 0 as *mut c_int;
@@ -413,7 +415,7 @@ impl ftdi_context {
         // detach operation might be denied and everything still works fine.
         // Likely scenario is a static ftdi_sio kernel module.
         if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE {
-            match unsafe { ffi::libusb_detach_kernel_driver(handle, self.interface as c_int) } {
+            match unsafe { ffi::libusb_detach_kernel_driver(device_handle, self.interface as c_int) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' - OK!")
                 },
@@ -424,7 +426,7 @@ impl ftdi_context {
                 }
             }
         } else if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_REATACH_SIO_MODULE {
-            match unsafe { ffi::libusb_set_auto_detach_kernel_driver(handle, 1) } {
+            match unsafe { ffi::libusb_set_auto_detach_kernel_driver(device_handle, 1) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' - OK!")
                 },
@@ -435,13 +437,13 @@ impl ftdi_context {
                 }
             }
         }
-        if unsafe { ffi::libusb_get_configuration (handle, cfg as *mut c_int) } < 0 {
+        if unsafe { ffi::libusb_get_configuration (device_handle, cfg as *mut c_int) } < 0 {
             let error = FtdiError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string() };
             error!("{}", error);
             return Err(error);
         }
         if descriptor.bNumConfigurations > 0 && (cfg != cfg0 as *mut c_int) {
-            if unsafe { ffi::libusb_set_configuration(handle, cfg0) }  < 0 {
+            if unsafe { ffi::libusb_set_configuration(device_handle, cfg0) }  < 0 {
                 if detach_errno == EPERM {
                     let error = FtdiError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string() };
                     error!("{}", error);
@@ -454,7 +456,7 @@ impl ftdi_context {
                 }
             }
         }
-        self.usb_dev = Some(handle);
+        self.usb_dev = Some(device_handle);
         self.ftdi_usb_reset()?;
 
         // Try to guess chip type
@@ -526,15 +528,15 @@ impl ftdi_context {
 
         let sys_device_list = unsafe { slice::from_raw_parts(
             device_list.system_device_list.unwrap(), device_list.number_found_devices) };
-        // let mut new_device_list: Vec<*mut ffi::libusb_device> = Vec::with_capacity(devices_len as usize);
+
         let mut usb_dev_index = 0;
         for dev in sys_device_list {
 
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
-            let mut descriptor = unsafe { MaybeUninit::uninit().assume_init() };
+            let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
 
-            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, &mut descriptor) } {
+            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, descriptor_uninit.as_mut_ptr()) } {
                 0 => {
                     true
                 },
@@ -544,6 +546,7 @@ impl ftdi_context {
                 },
             };
             if has_descriptor {
+                let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
                 info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
                 // print_debug_device_descriptor(handle, &descriptor, speed);
                 // extract all usb devices OR only specified by vendor and product ids
@@ -1362,21 +1365,26 @@ impl ftdi_context {
         } else {
             packet_size = 64;
         }
-        let mut descriptor: ffi::libusb_device_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-        let configuraton0: *mut *const ffi::libusb_config_descriptor = unsafe { MaybeUninit::uninit().assume_init() };
-        if unsafe { ffi::libusb_get_device_descriptor(self.usb_dev.unwrap().cast(), &mut descriptor) } < 0 {
+
+        let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_device_descriptor(self.usb_dev.unwrap().cast(), descriptor_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string() };
             error!("{}", error);
             return Ok(packet_size);
         };
-        if unsafe { ffi::libusb_get_config_descriptor(self.usb_dev.unwrap().cast(), 0, configuraton0) } < 0 {
+        let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
+
+        let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_config_descriptor(self.usb_dev.unwrap().cast(), 0, *configuraton_uninit.as_ptr()) } < 0 {
             let error = FtdiError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string() };
             error!("{}", error);
             return Ok(packet_size);
         };
+        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuraton_uninit.assume_init() };
+
         if descriptor.bNumConfigurations > 0 {
-            if self.interface < unsafe { (*(*configuraton0)).bNumInterfaces } {
-                let local_interface = unsafe { (*(*configuraton0)).interface/*[self.interface]*/ };
+            if self.interface < unsafe { (*(*configuraton)).bNumInterfaces } {
+                let local_interface = unsafe { (*(*configuraton)).interface/*[self.interface]*/ };
                 if unsafe { (*local_interface).num_altsetting } > 0  {
                     let local_descriptor = unsafe { (*local_interface).altsetting/*[0]*/ };
                     if unsafe { (*local_descriptor).bNumEndpoints } > 0 {
@@ -1385,7 +1393,7 @@ impl ftdi_context {
                 }
             }
         }
-        unsafe { ffi::libusb_free_config_descriptor(*configuraton0) };
+        unsafe { ffi::libusb_free_config_descriptor(*configuraton) };
         debug!("\'ftdi_determine_max_packet_size\' - OK : {}", packet_size);
         Ok(packet_size)
     }
