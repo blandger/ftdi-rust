@@ -12,7 +12,7 @@ use std::{
     slice, io, ptr,
     os::raw::{c_uint, c_ushort},
     any::Any,
-    ptr::null,
+    ptr::{null, copy}
 };
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{debug, info, warn, error};
@@ -1168,17 +1168,59 @@ impl ftdi_context {
     }
 
     pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) -> Result<()> {
-/*        let tc: ftdi_transfer_control = (*transfer).user_data as ftdi_transfer_control;
-        if tc.ftdi.is_none() {
-            let error = FtdiError::UsbInit { code: -8, message: "ftdi context is not initialized by ftdi_transfer_control".to_string() };
-            error!("{}", error);
-            return Err(error);
+        // cast user data to our type
+        let tc: &mut ftdi_transfer_control = unsafe { &mut *(transfer as *mut ftdi_transfer_control) };
+        // try to get lock guard on mutex
+        if let Ok(ref mut mutex) = tc.ftdi.clone().try_lock() {
+            debug!("ftdi_ context unlocked...");
+            let ftdi = &*mutex;
+            let packet_size = ftdi.max_packet_size;
+            let mut actual_length = unsafe { (*transfer).actual_length };
+            if actual_length > 2 {
+                // skip FTDI status bytes.
+                // Maybe stored in the future to enable modem use
+/*                let num_of_chunks = actual_length / packet_size;
+                let chunk_remains = actual_length % packet_size;
+                debug!("actual_length = {}, num_of_chunks = {}, chunk_remains = {}, readbuffer_offset = {}\n",
+                actual_length, num_of_chunks, chunk_remains, ftdi.readbuffer_offset);
 
-        }
-        let ftdi = tc.ftdi.unwrap();
-        let packet_size = ftdi.max_packet_size;
+                ftdi.readbuffer_offset += 2;
+                actual_length -= 2;
+
+                if actual_length > packet_size - 2 {
+                    // for i = 1; i < num_of_chunks; i++ {
+                    let mut index = 1;
+                    while index < num_of_chunks {
+                        copy(ftdi.readbuffer + ftdi.readbuffer_offset + (packet_size - 2) * index,
+                        ftdi.readbuffer + ftdi.readbuffer_offset + packet_size * index,
+                        packet_size - 2 as usize);
+                        index += 1;
+                    }
+                    if chunk_remains > 2 {
+                        copy(ftdi.readbuffer + ftdi.readbuffer_offset+(packet_size - 2)*index,
+                        ftdi.readbuffer + ftdi.readbuffer_offset+packet_size*index,
+                        chunk_remains-2 as usize);
+                        actual_length -= 2*num_of_chunks;
+                    } else {
+                        actual_length -= 2 * (num_of_chunks - 1) + chunk_remains;
+                    }
+                }
 */
-        unimplemented!()
+            }
+        } else {
+            error!("try_lock FTDI failed !");
+            println!("try_lock FTDI failed !");
+        }
+        if unsafe { (*transfer).status } == ffi::LIBUSB_TRANSFER_CANCELLED {
+            tc.completed = ffi::LIBUSB_TRANSFER_CANCELLED;
+        } else {
+            let result = unsafe { ffi::libusb_submit_transfer(transfer) };
+            if result < 0 {
+                tc.completed = 1;
+            }
+        }
+        Ok(())
+        // unimplemented!()
     }
 
     pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
