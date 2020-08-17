@@ -3,28 +3,29 @@
 #![allow(const_err)]
 #![allow(unused_imports)]
 
-use libusb_sys as ffi;
-use libc::{c_int,c_uchar, EPERM, c_void};
 use std::{
-    fmt::{Display, Formatter, Debug},
-    sync::{Arc, Mutex},
-    mem::{MaybeUninit, transmute},
-    slice, io, ptr,
-    os::raw::{c_uint, c_ushort},
     any::Any,
-    ptr::{null, copy}
+    fmt::{Debug, Display, Formatter},
+    io,
+    mem::{MaybeUninit, transmute}, os::raw::{c_uint, c_ushort}, ptr,
+    ptr::{copy, null},
+    slice,
+    sync::{Arc, Mutex}
 };
-use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
-use log::{debug, info, warn, error};
+
+use libc::{c_int, c_uchar, c_void, EPERM};
+use libusb_sys as ffi;
 use linuxver::version;
+use log::{debug, error, info, warn};
+use snafu::{Backtrace, ensure, ErrorCompat, ResultExt, Snafu};
+
 use crate::ftdi::{
     constants::{*},
-    core::{FtdiError, Result, ftdi_transfer_control},
-    ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor},
-    eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE}
+    core::{ftdi_transfer_control, FtdiError, Result},
+    eeprom::{ftdi_eeprom, FTDI_MAX_EEPROM_SIZE},
+    ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor}
 };
 use crate::scanf;
-
 
 /// brief Main context structure for all libftdi functions.
 /// Do not access directly if possible.
@@ -60,7 +61,7 @@ pub struct ftdi_context {
     /// write buffer chunk size
     pub writebuffer_chunksize: u32,
     /// maximum packet size. Needed for filtering modem status bytes every n packets.
-    pub max_packet_size: u32,
+    pub max_packet_size: i32,
 
     /// FTDI FT2232C requirements
     /// FT2232C interface number: 0 or 1
@@ -1173,14 +1174,14 @@ impl ftdi_context {
         // try to get lock guard on mutex
         if let Ok(ref mut mutex) = tc.ftdi.clone().try_lock() {
             debug!("ftdi_ context unlocked...");
-            let ftdi = &*mutex;
+            let ftdi = &mut *mutex;
             let packet_size = ftdi.max_packet_size;
             let mut actual_length = unsafe { (*transfer).actual_length };
             if actual_length > 2 {
                 // skip FTDI status bytes.
                 // Maybe stored in the future to enable modem use
-/*                let num_of_chunks = actual_length / packet_size;
-                let chunk_remains = actual_length % packet_size;
+                let num_of_chunks = actual_length / packet_size as i32;
+                let chunk_remains = actual_length % packet_size as i32;
                 debug!("actual_length = {}, num_of_chunks = {}, chunk_remains = {}, readbuffer_offset = {}\n",
                 actual_length, num_of_chunks, chunk_remains, ftdi.readbuffer_offset);
 
@@ -1191,21 +1192,23 @@ impl ftdi_context {
                     // for i = 1; i < num_of_chunks; i++ {
                     let mut index = 1;
                     while index < num_of_chunks {
-                        copy(ftdi.readbuffer + ftdi.readbuffer_offset + (packet_size - 2) * index,
-                        ftdi.readbuffer + ftdi.readbuffer_offset + packet_size * index,
-                        packet_size - 2 as usize);
+                        let array_start = ftdi.readbuffer_offset;
+                        let decreased_packet_size = packet_size - 2;
+                        // copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
+                        //            &mut ftdi.readbuffer[(array_start + ((decreased_packet_size) * index) as u32) as usize] as *mut u8,
+                        //            usize::try_from(decreased_packet_size).unwrap() );
                         index += 1;
                     }
                     if chunk_remains > 2 {
-                        copy(ftdi.readbuffer + ftdi.readbuffer_offset+(packet_size - 2)*index,
-                        ftdi.readbuffer + ftdi.readbuffer_offset+packet_size*index,
-                        chunk_remains-2 as usize);
+                        // copy::<u8>(ftdi.readbuffer + ftdi.readbuffer_offset+packet_size*index,
+                        //            ftdi.readbuffer + ftdi.readbuffer_offset+(packet_size - 2)*index,
+                        //            chunk_remains-2);
                         actual_length -= 2*num_of_chunks;
                     } else {
                         actual_length -= 2 * (num_of_chunks - 1) + chunk_remains;
                     }
                 }
-*/
+
             }
         } else {
             error!("try_lock FTDI failed !");
@@ -1394,10 +1397,10 @@ impl ftdi_context {
 
     /// Internal function to determine the maximum packet size.
     ///  Return Maximum packet size for this device
-    fn ftdi_determine_max_packet_size(&mut self) -> Result<u32> {
+    fn ftdi_determine_max_packet_size(&mut self) -> Result<i32> {
         debug!("start \'ftdi_usb_open_busftdi_determine_max_packet_size");
         self.check_usb_device()?;
-        let mut packet_size: u32 = 0;
+        let mut packet_size: i32 = 0;
         // Determine maximum packet size. Init with default value.
         // New hi-speed devices from FTDI use a packet size of 512 bytes
         // but could be connected to a normal speed USB hub -> 64 bytes packet size.
@@ -1430,7 +1433,7 @@ impl ftdi_context {
                 if unsafe { (*local_interface).num_altsetting } > 0  {
                     let local_descriptor = unsafe { (*local_interface).altsetting/*[0]*/ };
                     if unsafe { (*local_descriptor).bNumEndpoints } > 0 {
-                        packet_size = unsafe { (*(*local_descriptor).endpoint)/*[0]*/.wMaxPacketSize as u32 };
+                        packet_size = unsafe { (*(*local_descriptor).endpoint)/*[0]*/.wMaxPacketSize as i32 };
                     }
                 }
             }
