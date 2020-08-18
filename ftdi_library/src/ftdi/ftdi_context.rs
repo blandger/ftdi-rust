@@ -5,6 +5,7 @@
 
 use std::{
     any::Any,
+    convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     io,
     mem::{MaybeUninit, transmute}, os::raw::{c_uint, c_ushort}, ptr,
@@ -1189,24 +1190,64 @@ impl ftdi_context {
                 actual_length -= 2;
 
                 if actual_length > packet_size - 2 {
-                    // for i = 1; i < num_of_chunks; i++ {
                     let mut index = 1;
                     while index < num_of_chunks {
                         let array_start = ftdi.readbuffer_offset;
                         let decreased_packet_size = packet_size - 2;
-                        // copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
-                        //            &mut ftdi.readbuffer[(array_start + ((decreased_packet_size) * index) as u32) as usize] as *mut u8,
-                        //            usize::try_from(decreased_packet_size).unwrap() );
+                        let count = usize::try_from(decreased_packet_size).unwrap();
+                        unsafe { // TODO: check bounds calculation
+                            copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
+                                       &mut ftdi.readbuffer[(array_start + ((decreased_packet_size) * index) as u32) as usize] as *mut u8,
+                                       count);
+                        }
                         index += 1;
                     }
                     if chunk_remains > 2 {
-                        // copy::<u8>(ftdi.readbuffer + ftdi.readbuffer_offset+packet_size*index,
-                        //            ftdi.readbuffer + ftdi.readbuffer_offset+(packet_size - 2)*index,
-                        //            chunk_remains-2);
-                        actual_length -= 2*num_of_chunks;
+                        let array_start = ftdi.readbuffer_offset;
+                        let count = usize::try_from(chunk_remains - 2).unwrap();
+                        unsafe { // TODO: check bounds calculation
+                            copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
+                                       &mut ftdi.readbuffer[(array_start + ((packet_size - 2) * index) as u32) as usize] as *mut u8,
+                                       count);
+                        }
+                        actual_length -= 2 * num_of_chunks;
                     } else {
                         actual_length -= 2 * (num_of_chunks - 1) + chunk_remains;
                     }
+                }
+
+                if actual_length > 0 {
+
+                    if (tc.offset + actual_length) <= tc.size {
+                        // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, actual_length);
+                        //printf("buf[0] = %X, buf[1] = %X\n", buf[0], buf[1]);
+                        tc.offset += actual_length;
+
+                        ftdi.readbuffer_offset = 0;
+                        ftdi.readbuffer_remaining = 0;
+
+                        /* Did we read exactly the right amount of bytes? */
+                        if tc.offset == tc.size {
+                            //printf("read_data exact rem %d offset %d\n",
+                            //ftdi->readbuffer_remaining, offset);
+                            tc.completed = 1;
+                            return Ok(());
+                        }
+                    } else {
+                        // only copy part of the data or size <= readbuffer_chunksize
+                        let part_size = tc.size - tc.offset;
+                        // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, part_size);
+                        tc.offset += part_size;
+
+                        ftdi.readbuffer_offset.checked_add(part_size as u32);
+                        ftdi.readbuffer_remaining = actual_length.checked_sub(part_size).unwrap() as u32;
+
+                        /* printf("Returning part: %d - size: %d - offset: %d - actual_length: %d - remaining: %d\n",
+                        part_size, size, offset, actual_length, ftdi->readbuffer_remaining); */
+                        tc.completed = 1;
+                        return Ok(());
+                    }
+
                 }
 
             }
@@ -1223,7 +1264,6 @@ impl ftdi_context {
             }
         }
         Ok(())
-        // unimplemented!()
     }
 
     pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>

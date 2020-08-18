@@ -41,8 +41,8 @@ pub enum FtdiError {
 pub struct ftdi_transfer_control {
     pub completed: i32,
     pub buf: Vec<u8>,
-    pub size: usize,
-    pub offset: isize,
+    pub size: i32,
+    pub offset: i32,
     pub ftdi: Arc<Mutex<ftdi_context>>,
     // pub ftdi: Option<*mut ffi::libusb_context>,
     // pub transfer: ffi::libusb_transfer,
