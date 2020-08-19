@@ -1195,7 +1195,7 @@ impl ftdi_context {
                         let array_start = ftdi.readbuffer_offset;
                         let decreased_packet_size = packet_size - 2;
                         let count = usize::try_from(decreased_packet_size).unwrap();
-                        unsafe { // TODO: check bounds calculation
+                        unsafe { // TODO: check bounds calculation, most probably incorrect
                             copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
                                        &mut ftdi.readbuffer[(array_start + ((decreased_packet_size) * index) as u32) as usize] as *mut u8,
                                        count);
@@ -1205,7 +1205,7 @@ impl ftdi_context {
                     if chunk_remains > 2 {
                         let array_start = ftdi.readbuffer_offset;
                         let count = usize::try_from(chunk_remains - 2).unwrap();
-                        unsafe { // TODO: check bounds calculation
+                        unsafe { // TODO: check bounds calculation, most probably incorrect
                             copy::<u8>(&mut ftdi.readbuffer[(array_start + (packet_size * index) as u32) as usize] as *mut u8,
                                        &mut ftdi.readbuffer[(array_start + ((packet_size - 2) * index) as u32) as usize] as *mut u8,
                                        count);
@@ -1219,7 +1219,18 @@ impl ftdi_context {
                 if actual_length > 0 {
 
                     if (tc.offset + actual_length) <= tc.size {
+                        let dest_len = actual_length as usize; // tc.offset; ?
+                        tc.buf.reserve(dest_len as usize); // destination
+                        let start = ftdi.readbuffer_offset;
+                        let source = &ftdi.readbuffer[start as usize..((start + actual_length as u32) as usize)];
+                        // copy from ftdi.readbuffer[] into Vec tc.buf, 'actual_length' quantity
                         // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, actual_length);
+                        unsafe {
+                            let dst_ptr = tc.buf.as_mut_ptr().offset(dest_len as isize);
+                            let src_ptr = source.as_ptr();
+                            // src.set_len(0); // ??
+                            ptr::copy_nonoverlapping(src_ptr, dst_ptr, dest_len);
+                        }
                         //printf("buf[0] = %X, buf[1] = %X\n", buf[0], buf[1]);
                         tc.offset += actual_length;
 
@@ -1236,11 +1247,43 @@ impl ftdi_context {
                     } else {
                         // only copy part of the data or size <= readbuffer_chunksize
                         let part_size = tc.size - tc.offset;
+                        let dest_len = part_size as usize;
+                        tc.buf.reserve(tc.offset as usize); // destination
+                        let start = ftdi.readbuffer_offset;
+                        let source = &ftdi.readbuffer[start as usize..((start + actual_length as u32) as usize)];
+                        // copy from ftdi.readbuffer[] into Vec tc.buf, 'part_size' quantity
                         // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, part_size);
+                        unsafe {
+                            let dst_ptr = tc.buf.as_mut_ptr().offset(dest_len as isize);
+                            let src_ptr = source.as_ptr();
+                            // src.set_len(0); // ??
+                            ptr::copy_nonoverlapping(src_ptr, dst_ptr, dest_len);
+                        }
                         tc.offset += part_size;
 
-                        ftdi.readbuffer_offset.checked_add(part_size as u32);
-                        ftdi.readbuffer_remaining = actual_length.checked_sub(part_size).unwrap() as u32;
+                        let add_result = ftdi.readbuffer_offset.checked_add(part_size as u32);
+                        match add_result {
+                            None => {
+                                let error = FtdiError::UsbCommandError { code: -111,
+                                    message: "overflow in read data code, checked_add".to_string() };
+                                error!("{}", error);
+                                return Err(error);
+
+                            },
+                            _ => {} // continue
+                        }
+                        let decreased_lenght_to_read = actual_length.checked_sub(part_size);
+                        match decreased_lenght_to_read {
+                            None => {
+                                let error = FtdiError::UsbCommandError { code: -111,
+                                    message: "underflow in read data code, checked_sub".to_string() };
+                                error!("{}", error);
+                                return Err(error);
+
+                            },
+                            _ => {} // continue
+                        }
+                        ftdi.readbuffer_remaining = decreased_lenght_to_read.unwrap() as u32;
 
                         /* printf("Returning part: %d - size: %d - offset: %d - actual_length: %d - remaining: %d\n",
                         part_size, size, offset, actual_length, ftdi->readbuffer_remaining); */
