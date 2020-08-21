@@ -1128,6 +1128,8 @@ impl ftdi_context {
         Ok(())
     }
 
+    /// Writes data in chunks (see ftdi_write_data_set_chunksize()) to the chip
+    /// buf Vector is buffer with the data and size
     pub fn ftdi_write_data(&self, buffer: &mut Vec<u8>) -> Result<usize> {
         debug!("start 'ftdi_write_data' ...");
         self.check_usb_device()?;
@@ -1169,7 +1171,7 @@ impl ftdi_context {
         Ok(full_buf_size)
     }
 
-    pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) -> Result<()> {
+    pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) /*-> Result<()> */{
         // cast user data to our type
         let tc: &mut ftdi_transfer_control = unsafe { &mut *(transfer as *mut ftdi_transfer_control) };
         // try to get lock guard on mutex
@@ -1224,7 +1226,6 @@ impl ftdi_context {
                         let start = ftdi.readbuffer_offset;
                         let source = &ftdi.readbuffer[start as usize..((start + actual_length as u32) as usize)];
                         // copy from ftdi.readbuffer[] into Vec tc.buf, 'actual_length' quantity
-                        // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, actual_length);
                         unsafe {
                             let dst_ptr = tc.buf.as_mut_ptr().offset(dest_len as isize);
                             let src_ptr = source.as_ptr();
@@ -1242,7 +1243,7 @@ impl ftdi_context {
                             //printf("read_data exact rem %d offset %d\n",
                             //ftdi->readbuffer_remaining, offset);
                             tc.completed = 1;
-                            return Ok(());
+                            // return Ok(());
                         }
                     } else {
                         // only copy part of the data or size <= readbuffer_chunksize
@@ -1252,7 +1253,6 @@ impl ftdi_context {
                         let start = ftdi.readbuffer_offset;
                         let source = &ftdi.readbuffer[start as usize..((start + actual_length as u32) as usize)];
                         // copy from ftdi.readbuffer[] into Vec tc.buf, 'part_size' quantity
-                        // memcpy (tc->buf + tc->offset, ftdi->readbuffer + ftdi->readbuffer_offset, part_size);
                         unsafe {
                             let dst_ptr = tc.buf.as_mut_ptr().offset(dest_len as isize);
                             let src_ptr = source.as_ptr();
@@ -1267,7 +1267,7 @@ impl ftdi_context {
                                 let error = FtdiError::UsbCommandError { code: -111,
                                     message: "overflow in read data code, checked_add".to_string() };
                                 error!("{}", error);
-                                return Err(error);
+                                // return Err(error);
 
                             },
                             _ => {} // continue
@@ -1278,7 +1278,7 @@ impl ftdi_context {
                                 let error = FtdiError::UsbCommandError { code: -111,
                                     message: "underflow in read data code, checked_sub".to_string() };
                                 error!("{}", error);
-                                return Err(error);
+                                // return Err(error);
 
                             },
                             _ => {} // continue
@@ -1288,7 +1288,7 @@ impl ftdi_context {
                         /* printf("Returning part: %d - size: %d - offset: %d - actual_length: %d - remaining: %d\n",
                         part_size, size, offset, actual_length, ftdi->readbuffer_remaining); */
                         tc.completed = 1;
-                        return Ok(());
+                        // return Ok(());
                     }
 
                 }
@@ -1306,7 +1306,43 @@ impl ftdi_context {
                 tc.completed = 1;
             }
         }
-        Ok(())
+        // Ok(())
+    }
+
+    pub fn ftdi_write_data_cb(transfer: *mut ffi::libusb_transfer) {
+        // cast user data to our type
+        let tc: &mut ftdi_transfer_control = unsafe { &mut *(transfer as *mut ftdi_transfer_control) };
+        // try to get lock guard on mutex
+        if let Ok(ref mut mutex) = tc.ftdi.clone().try_lock() {
+            debug!("ftdi_ context unlocked...");
+            let ftdi = &mut *mutex;
+            tc.offset += unsafe { (*transfer).actual_length };
+
+            if tc.offset == tc.size {
+                tc.completed = 1;
+            } else {
+                let mut write_size = ftdi.writebuffer_chunksize as i32;
+                if tc.offset + write_size > tc.size {
+                    write_size = tc.size - tc.offset;
+                }
+
+                unsafe { (*transfer).length = write_size };
+                unsafe { (*transfer).buffer = tc.buf[(tc.offset as usize)..].as_mut_ptr() }; // TODO: check range
+
+                if unsafe { (*transfer).status } == ffi::LIBUSB_TRANSFER_CANCELLED {
+                    tc.completed = ffi::LIBUSB_TRANSFER_CANCELLED;
+                } else {
+                    let result = unsafe { ffi::libusb_submit_transfer(transfer) };
+                    if result < 0 {
+                        tc.completed = 1;
+                    }
+                }
+            }
+
+        } else {
+            error!("try_lock FTDI failed !");
+            println!("try_lock FTDI failed !");
+        }
     }
 
     pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
