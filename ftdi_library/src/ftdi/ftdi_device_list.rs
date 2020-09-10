@@ -10,7 +10,7 @@ use crate::ftdi::ftdi_context::ftdi_context;
 /// brief list of usb devices created by ftdi_usb_find_all()
 pub struct ftdi_device_list {
     /// Vector keeps all devices and all are freed later
-    // pub ftdi_device_list: Vec<*mut ffi::libusb_device>,
+    /// pub ftdi_device_list: Vec<*mut ffi::libusb_device>,
     /// found ans stored number of devices.
     /// It equals to number of devices in vector
     pub number_found_devices: usize,

@@ -45,8 +45,8 @@ pub struct ftdi_transfer_control {
     pub offset: i32,
     pub ftdi: Arc<Mutex<ftdi_context>>,
     // pub ftdi: Option<*mut ffi::libusb_context>,
-    // pub transfer: ffi::libusb_transfer,
-    pub transfer: Arc<Mutex<ffi::libusb_transfer>>,
+    pub transfer: ffi::libusb_transfer,
+    // pub transfer: Arc<Mutex<ffi::libusb_transfer>>,
 }
 impl Default for ftdi_transfer_control {
     fn default() -> Self {
@@ -58,10 +58,28 @@ impl Default for ftdi_transfer_control {
             size: 0,
             offset: 0,
             ftdi: Arc::new(Mutex::new(ftdi_context::default())),
-            transfer: Arc::new(Mutex::new( libusb_transfer ))
+            // transfer: Arc::new(Mutex::new( libusb_transfer ))
+            transfer: libusb_transfer
         }
     }
 }
+impl ftdi_transfer_control {
+    pub fn new(ftdi: ftdi_context, buffer: &Vec<u8>) -> Self {
+    // pub fn new(ftdi: ftdi_context, buffer: &Box<[u8]>) -> Self {
+        let libusb_transfer_uninit = MaybeUninit::<ffi::libusb_transfer>::zeroed();
+        let libusb_transfer = unsafe { libusb_transfer_uninit.assume_init() };
+        ftdi_transfer_control {
+            completed: 0,
+            buf: buffer.to_vec(), // TODO: check if cloning is correct way here
+            size: buffer.len() as i32,
+            offset: 0,
+            ftdi: Arc::new(Mutex::new(ftdi)),
+            // transfer: Arc::new(Mutex::new( libusb_transfer ))
+            transfer: libusb_transfer,
+        }
+    }
+}
+
 
 enum ftdi_cbus_func {
     CBUS_TXDEN = 0, CBUS_PWREN = 1, CBUS_RXLED = 2, CBUS_TXLED = 3, CBUS_TXRXLED = 4,

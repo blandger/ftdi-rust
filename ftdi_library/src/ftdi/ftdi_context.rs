@@ -58,7 +58,7 @@ pub struct ftdi_context {
     /// number of remaining data in internal read buffer
     pub readbuffer_remaining: u32,
     /// read buffer chunk size
-    pub readbuffer_chunksize: u32,
+    pub readbuffer_chunksize: i32,
     /// write buffer chunk size
     pub writebuffer_chunksize: u32,
     /// maximum packet size. Needed for filtering modem status bytes every n packets.
@@ -71,8 +71,8 @@ pub struct ftdi_context {
     pub index: u8,       /* 1 or 2 */
     /// Endpoints */
     /// FT2232C end points: 1 or 2
-    pub in_ep: i32,
-    pub out_ep: i32,      /* 1 or 2 */
+    pub in_ep: u8,
+    pub out_ep: u8,      /* 1 or 2 */
 
     /// Bitbang mode. 1: (default) Normal bitbang mode, 2: FT2232C SPI bitbang mode
     pub bitbang_mode: u8,
@@ -215,7 +215,7 @@ impl ftdi_context {
                 readbuffer: Box::new([0u8; FTDI_MAX_EEPROM_SIZE]),
                 readbuffer_offset: 0,
                 readbuffer_remaining: 0,
-                readbuffer_chunksize: calculated_max_chunk_size,
+                readbuffer_chunksize: calculated_max_chunk_size as i32,
                 writebuffer_chunksize: WRITE_BUFFER_CHUNKSIZE,
                 max_packet_size: 0,
                 interface: 0,
@@ -537,9 +537,11 @@ impl ftdi_context {
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
+            // let mut descriptor: ffi::libusb_device_descriptor;
 
             let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, descriptor_uninit.as_mut_ptr()) } {
                 0 => {
+                    // descriptor = unsafe { descriptor_uninit.assume_init() };
                     true
                 },
                 _err => {
@@ -1314,7 +1316,7 @@ impl ftdi_context {
         let tc: &mut ftdi_transfer_control = unsafe { &mut *(transfer as *mut ftdi_transfer_control) };
         // try to get lock guard on mutex
         if let Ok(ref mut mutex) = tc.ftdi.clone().try_lock() {
-            debug!("ftdi_ context unlocked...");
+            debug!("ftdi_context unlocked...");
             let ftdi = &mut *mutex;
             tc.offset += unsafe { (*transfer).actual_length };
 
@@ -1345,16 +1347,22 @@ impl ftdi_context {
         }
     }
 
-    pub fn ftdi_read_data_submit<F>(self, buffer: &Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
-        where F: FnMut(*mut ffi::libusb_transfer) -> Result<()> {
-        debug!("start ftdi_read_data_submit... buffer_size = [{}]", buffer.len());
+/*    // pub fn ftdi_read_data_submit<F>(self, destination_buffer: &mut Vec<u8>, mut callback: F) -> Result<ftdi_transfer_control>
+    pub unsafe fn ftdi_read_data_submit<F>(self, destination_buffer: &mut Vec<u8>, mut ftdi_read_data_callback: F) -> Result<ftdi_transfer_control>
+    // pub fn ftdi_read_data_submit<F>(self, destination_buffer: &mut Vec<u8>, mut ftdi_read_data_callback: F) -> Result<ftdi_transfer_control>
+    //     where F: FnMut(*mut ffi::libusb_transfer) -> Result<()> {
+        where F: FnMut(*mut ffi::libusb_transfer_cb_fn) -> Result<()> {
+
+        debug!("start ftdi_read_data_submit... destination_buffer_size = [{}]", destination_buffer.len());
         self.check_usb_device()?;
-        let tc: ftdi_transfer_control = ftdi_transfer_control::default();
-        let transfer: ffi::libusb_transfer;
+        let mut tc: ftdi_transfer_control = ftdi_transfer_control::new(self, &destination_buffer);
+        let transfer: *mut ffi::libusb_transfer;
 
         // tc = Box::new(ftdi_transfer_control).deref();
 
-        let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = &mut callback;
+        // let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = &mut callback;
+        // let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = &mut ftdi_read_data_callback;
+        let mut cb: &mut dyn FnMut(*mut ffi::libusb_transfer_cb_fn) -> Result<()> = &mut ftdi_read_data_callback;
         let ctx = &mut cb as *mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> as *mut c_void;
         debug!("ctx: {:?}", ctx);
         let cb2: *mut *mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = unsafe { transmute(ctx) };
@@ -1362,9 +1370,96 @@ impl ftdi_context {
         // this is more useful, but can't be printed, because not implement Debug
         let closure: &mut &mut dyn FnMut(*mut ffi::libusb_transfer) -> Result<()> = unsafe { transmute(ctx) };
 
+        if let Ok(ref mut mutex) = tc.ftdi.clone().try_lock() {
+            debug!("ftdi_context transfer unlocked...");
+            let ftdi = &mut *mutex;
 
-        unimplemented!()
+            if destination_buffer.len() <= ftdi.readbuffer_remaining as usize {
+                // memcpy (buf, ftdi.readbuffer+ftdi.readbuffer_offset, size);
+                let size = destination_buffer.len();
+                unsafe {
+                    copy::<u8>(ftdi.readbuffer[..ftdi.readbuffer_offset as usize].as_ptr(),
+                               destination_buffer.as_mut_ptr(),
+                               size);
+                }
+                // Fix offsets
+                ftdi.readbuffer_remaining -= size as u32;
+                ftdi.readbuffer_offset += size as u32;
+                /* printf("Returning bytes from buffer: %d - remaining: %d\n", size, ftdi->readbuffer_remaining); */
+
+                tc.completed = 1;
+                tc.offset = size as i32;
+                // tc.transfer = ptr::null_mut()::<ffi::libusb_transfer>();
+                return Ok(tc);
+            }
+
+            tc.completed = 0;
+            if ftdi.readbuffer_remaining != 0 {
+                // memcpy (buf, ftdi->readbuffer+ftdi->readbuffer_offset, ftdi->readbuffer_remaining);
+                let size = ftdi.readbuffer_remaining as usize;
+                unsafe {
+                    copy::<u8>(ftdi.readbuffer[..ftdi.readbuffer_offset as usize].as_ptr(),
+                               destination_buffer.as_mut_ptr(),
+                               size);
+                }
+                tc.offset = ftdi.readbuffer_remaining as i32;
+            } else {
+                tc.offset = 0;
+            }
+            transfer = unsafe { ffi::libusb_alloc_transfer(0) };
+            if transfer.is_null() {
+                drop(transfer);
+                let error = FtdiError::UsbCommandError { code: -22, message: "libusb_alloc_transfer failed !".to_string() };
+                error!("{}", error);
+                return Err(error);
+            }
+
+            ftdi.readbuffer_remaining = 0;
+            ftdi.readbuffer_offset = 0;
+
+            unsafe {
+                ffi::libusb_fill_bulk_transfer(transfer,
+                                               ftdi.usb_dev.unwrap(),
+                                               ftdi.out_ep as c_uchar,
+                                               (&ftdi.readbuffer).as_ptr() as *mut c_uchar,
+                                               ftdi.readbuffer_chunksize as c_int,
+                                               ftdi_read_data_callback,
+                                               tc as *mut c_void,
+                                               ftdi.usb_read_timeout as c_uint) } {
+            }
+            unsafe { (*transfer).transfer_type = ffi::LIBUSB_TRANSFER_TYPE_BULK as c_uchar };
+
+            // if unsafe {
+            //     ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),
+            //                               self.in_ep as c_uchar,
+            //                               buf_data_ptr,
+            //                               write_size as c_int,
+            //                               actual_written_data_length_ptr,
+            //                               self.usb_write_timeout as c_uint )} < 0 {
+            //     let error = FtdiError::UsbCommandError { code: -1,
+            //         message: "usb bulk write failed".to_string() };
+            //     error!("actual_written_data_length = [{:?}], {}", actual_written_data_length_ptr, error);
+            //     return Err(error);
+            // }
+            let submit_result = unsafe { ffi::libusb_submit_transfer(transfer) };
+            if submit_result < 0 {
+                unsafe { ffi::libusb_free_transfer(transfer) };
+                drop(transfer);
+                let error = FtdiError::UsbCommandError { code: -22, message: "libusb_submit_transfer failed !".to_string() };
+                error!("{}", error);
+                return Err(error);
+            }
+            tc.transfer = unsafe { *transfer };
+
+            return Ok(tc);
+
+        } else {
+            let error = FtdiError::UsbCommandError { code: -22, message: "try_lock FTDI failed !".to_string() };
+            error!("{}", error);
+            return Err(error);
+        }
     }
+*/
 
     /// Parse vendor/product string supplied in specific format
     /// Return Vector with appropriate numbers OR error
