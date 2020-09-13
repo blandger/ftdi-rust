@@ -20,7 +20,7 @@ fn main() -> Result<(), FtdiError> {
 
     info!("start find all usb device(s)...");
     let mut ftdi_list = ftdi_device_list::new(&ftdi)?;
-    let list = ftdi_list.ftdi_usb_find_all(&ftdi,0, 0)?;
+    let list = ftdi_list.ftdi_usb_find_all(&mut ftdi,0, 0)?;
     info!("Number of FTDI devices found: [{}] - OK", list.number_found_devices);
     info!("List of FTDI usb devices found: \'{:?}\' - OK", list.system_device_list);
     for (index, device) in list.system_device_list.iter().enumerate() {
