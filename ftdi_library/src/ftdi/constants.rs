@@ -3,6 +3,7 @@
 #![allow(const_err)] // TODO: check later without that
 
 use libusb_sys as ffi;
+use std::str::FromStr;
 
 pub const FTDI_MAJOR_VERSION: u8 = 1;
 pub const FTDI_MINOR_VERSION: u8 = 5;
@@ -185,6 +186,19 @@ impl Into<u8> for ftdi_interface {
     #[inline]
     fn into(self) -> u8 {
         self as u8
+    }
+}
+impl FromStr for ftdi_interface {
+    type Err = &'static str;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "INTERFACE_ANY" | "ANY" => Ok(ftdi_interface::INTERFACE_ANY),
+            "INTERFACE_A" | "A" => Ok(ftdi_interface::INTERFACE_A),
+            "INTERFACE_B" | "B" => Ok(ftdi_interface::INTERFACE_B),
+            "INTERFACE_C" | "C" => Ok(ftdi_interface::INTERFACE_C),
+            "INTERFACE_D" | "D" => Ok(ftdi_interface::INTERFACE_D),
+            _ => Err("no match"),
+        }
     }
 }
 
