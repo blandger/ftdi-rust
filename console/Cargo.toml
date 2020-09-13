@@ -16,3 +16,5 @@ libusb-sys = "0.2.3"
 #libusb-sys = { path = "../../libusb-sys" }
 log = "0.4.11"
 log4rs = "0.12"
+signal-hook = "0.1.16"
+clap = "2.3"
