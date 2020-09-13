@@ -56,9 +56,9 @@ impl ftdi_device_list {
     /// use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
     /// use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
     ///
-    ///    let ftdi = ftdi_context::new().unwrap();
+    ///    let mut ftdi = ftdi_context::new().unwrap();
     ///    let mut ftdi_list = ftdi_device_list::new(&ftdi).unwrap();
-    ///     match ftdi_list.ftdi_usb_find_all(&ftdi, 0, 0) {
+    ///     match ftdi_list.ftdi_usb_find_all(&mut ftdi, 0, 0) {
     ///         Ok(ftdi_usb_list) => {
     ///             println!("ftdi_usb_list is OK, found FTDI system_device_list = {:?}", ftdi_usb_list.system_device_list);
     ///             println!("ftdi_list is OK, found FTDI number = {}", ftdi_usb_list.number_found_devices);
@@ -68,7 +68,7 @@ impl ftdi_device_list {
     ///         },
     ///     }
     /// ```
-    pub fn ftdi_usb_find_all(&mut self, ftdi: &ftdi_context, vendor: u16, product: u16) -> Result<Self> {
+    pub fn ftdi_usb_find_all(&mut self, ftdi: &mut ftdi_context, vendor: u16, product: u16) -> Result<Self> {
         // check ftdi context
         if ftdi.usb_ctx == None {
             let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string()};
@@ -77,7 +77,8 @@ impl ftdi_device_list {
         }
         // fetch usb device list by calling internal function
         if self.system_device_list == None && self.number_found_devices == 0 {
-            let (device_list, devices_len) = ftdi_device_list::get_usb_device_list_internal(ftdi)?;
+            let (device_list, devices_len) =
+                ftdi_device_list::get_usb_device_list_internal(&ftdi)?;
             self.system_device_list = Some(device_list);
             self.number_found_devices = devices_len as usize;
         }
@@ -114,6 +115,7 @@ impl ftdi_device_list {
                         || descriptor.idProduct == 0x6015) {
                     debug!("Process matched device [{}]", usb_dev_index);
                     print_debug_device_descriptor(handle, &descriptor, speed);
+                    ftdi.usb_dev = Some(handle);
                     found_usb_count += 1; // count found
                 } else {
                     debug!("SKIPPED unmatched USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);

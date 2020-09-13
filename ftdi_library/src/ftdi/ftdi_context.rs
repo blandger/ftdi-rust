@@ -8,7 +8,9 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     io,
-    mem::{MaybeUninit, transmute}, os::raw::{c_uint, c_ushort}, ptr,
+    mem::{MaybeUninit, transmute},
+    os::raw::{c_uint, c_ushort},
+    ptr,
     ptr::{copy, null},
     slice,
     sync::{Arc, Mutex}
@@ -374,8 +376,8 @@ impl ftdi_context {
     }
 
     /// Opens a ftdi device given by an usb_device.
-///
-///  param dev libusb usb_dev to use
+    ///
+    ///  param dev libusb usb_dev to use
     pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result<()> {
         debug!("start \'ftdi_usb_open_dev\' ...");
         // check ftdi context
@@ -840,15 +842,15 @@ impl ftdi_context {
     }
 
     /// ftdi_to_clkbits_AM For the AM device, convert a requested baudrate
-///                     to encoded divisor and the achievable baudrate
-///  Function is only used internally
-///
-///     See AN120
-///    clk/1   -> 0
-///    clk/1.5 -> 1
-///    clk/2   -> 2
-///    From /2, 0.125/ 0.25 and 0.5 steps may be taken
-///    The fractional part has frac_code encoding
+    ///                     to encoded divisor and the achievable baudrate
+    ///  Function is only used internally
+    ///
+    ///     See AN120
+    ///    clk/1   -> 0
+    ///    clk/1.5 -> 1
+    ///    clk/2   -> 2
+    ///    From /2, 0.125/ 0.25 and 0.5 steps may be taken
+    ///    The fractional part has frac_code encoding
     fn ftdi_to_clkbits_am(&mut self, baudrate: i32, encoded_divisor: &mut u32) -> i32 {
         debug!("start \'ftdi_to_clkbits_am\' ...");
         let am_adjust_up: [u16; 8] = [0, 0, 0, 1, 0, 3, 2, 1];
@@ -1666,7 +1668,7 @@ impl Drop for ftdi_context {
             Some(usb_device) => {
                 debug!("closing ftdi \'usb device handler\' context...");
                 unsafe {ffi::libusb_close(usb_device);}
-                unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
+                // unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
                 self.usb_dev = None;
             }
             None => {
