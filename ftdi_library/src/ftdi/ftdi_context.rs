@@ -232,7 +232,7 @@ impl ftdi_context {
         )
     }
 
-    pub fn set_interface_type(&mut self, interface_type: ftdi_interface) {
+    pub fn ftdi_set_interface(&mut self, interface_type: ftdi_interface) {
         debug!("set interface type \'{:?}\' to ftdi context", interface_type);
         match interface_type {
             ftdi_interface::INTERFACE_ANY | ftdi_interface::INTERFACE_A => {
@@ -567,7 +567,8 @@ impl ftdi_context {
                             super::ftdi_device_list::get_string_descriptor(handle, descriptor.iProduct);
                         if description != None && product_descriptor != None && !description.eq(&product_descriptor.into()) {
                             if !handle.is_null() {
-                                unsafe { ffi::libusb_close(handle) };
+                                // unsafe { ffi::libusb_close(handle) };
+                                self.usb_dev = Some(handle);
                             }
                             continue; // skip device
                         }
@@ -575,7 +576,8 @@ impl ftdi_context {
                             super::ftdi_device_list::get_string_descriptor(handle, descriptor.iSerialNumber);
                         if serial != None && serial_number != None && !serial.eq(&serial_number) {
                             if !handle.is_null() {
-                                unsafe { ffi::libusb_close(handle) };
+                                // unsafe { ffi::libusb_close(handle) };
+                                self.usb_dev = Some(handle);
                             }
                             continue; // skip device
                         }
@@ -1027,7 +1029,7 @@ impl ftdi_context {
     /// Sets the chip baud rate
     ///
     /// param baudrate baud rate to set
-    fn ftdi_set_baudrate(&mut self, mut baudrate: i32)  -> Result<()> {
+    pub fn ftdi_set_baudrate(&mut self, mut baudrate: i32)  -> Result<()> {
         debug!("start \'ftdi_set_baudrate\' ...");
         self.check_usb_device()?;
         if self.bitbang_enabled {
