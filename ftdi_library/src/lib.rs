@@ -116,4 +116,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn parse_number_str() {
+        let values: Vec<(&str, Option<u16>)> = vec![
+            ("", None),
+            ("  ", None),
+            ("empty", None),
+            ("s", None),
+            ("1234", Some(1234)),
+            ("12", Some(12)),
+            ("0o1274", Some(700)),
+            ("0xADF", Some(2783)),
+        ];
+        for (input, expected) in values {
+            println!("input = \'{}\'", input);
+            let result = ftdi_context::parse_number_str(&input);
+            assert_eq!(result, expected);
+        }
+    }
+
 }

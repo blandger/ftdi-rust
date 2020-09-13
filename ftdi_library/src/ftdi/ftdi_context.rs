@@ -1550,6 +1550,37 @@ impl ftdi_context {
         Ok(result_vec)
     }
 
+    pub fn parse_number_str(one_item: &str) -> Option<u16> {
+        if one_item.starts_with("0x") { // HEX value
+            let without_prefix = one_item.trim_start_matches("0x"); // "0o52"
+            debug!("without_prefix - 0x = {:?}", without_prefix);
+            let parse_result = u16::from_str_radix(without_prefix, 16);
+            debug!("parse_result - 0x = {:?}", parse_result);
+            match parse_result {
+                Ok(value) => return Some(value),
+                Err(_) => return None,
+            }
+        } else if one_item.starts_with("0o") { // Octet value
+            let without_prefix = one_item.trim_start_matches("0o"); // "0o52"
+            debug!("without_prefix - 0o = {:?}", without_prefix);
+            let parse_result = u16::from_str_radix(without_prefix, 8);
+            debug!("parse_result - 0o = {:?}", parse_result);
+            match parse_result {
+                Ok(value) => return Some(value),
+                Err(_) => return None,
+            }
+        } else { // DECIMAL value
+            let without_prefix = one_item; // "0394"
+            debug!("without_prefix - 0 = {:?}", without_prefix);
+            let parse_result = u16::from_str_radix(without_prefix, 10);
+            debug!("parse_result - 0 = {:?}", parse_result);
+            match parse_result {
+                Ok(value) => return Some(value),
+                Err(_) => return None,
+            }
+        }
+    }
+
     /// ftdi_read_chipid_shift does the bitshift operation needed for the FTDIChip-ID
     /// It is used internally only
     fn ftdi_read_chipid_shift(value: u32) -> u32 {
