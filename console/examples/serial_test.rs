@@ -32,12 +32,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .long("vendorId")
             .value_name("Vendor ID")
             .help("Vendor ID usb value, default is '0403' for FTDI")
-            .default_value("403"))
+            .default_value("0x0403"))
         .arg(Arg::with_name("p")
             .short("p")
             .long("productId")
             .value_name("Product ID")
-            .help("Product ID usb value, usual FTDI values are :6001, 6010, 6011, 6014, 6015")
+            .help("Product ID usb value, usual FTDI values are :0x6001, 0x6010, 0x6011, 0x6014, 0x6015")
             .required(true))
         .arg(Arg::with_name("b")
             .short("b")
@@ -60,8 +60,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // validate incoming command line parameters
     let interface = value_t!(matches.value_of("i"), ftdi_interface).unwrap_or(ftdi_interface::INTERFACE_ANY);
-    let vid = value_t!(matches.value_of("v"), u16).unwrap_or_else(|e| { println!("vid Error = {:?}", e); e.exit() } );
-    let pid = value_t!(matches.value_of("p"), u16).unwrap_or_else(|e| { println!("pid Error = {:?}", e); e.exit() } );
+    // let vid = value_t!(matches.value_of("v"), u16).unwrap_or_else(|e| { println!("vid Error = {:?}", e); e.exit() } );
+    let mut vid= 0;
+    if matches.is_present("v") {
+        vid = ftdi_context::parse_number_str(matches.value_of("v").unwrap()).unwrap_or_default();
+    }
+    // let pid = value_t!(matches.value_of("p"), u16).unwrap_or_else(|e| { println!("pid Error = {:?}", e); e.exit() } );
+    let mut pid = 0;
+    if matches.is_present("p") {
+        pid = ftdi_context::parse_number_str(matches.value_of("p").unwrap()).unwrap_or_default();
+    }
     let baudrate = value_t!(matches.value_of("b"), i32).unwrap_or(115200 );
     // if tha is READ or WRITE operation ?
     let do_write = matches.is_present("w");
