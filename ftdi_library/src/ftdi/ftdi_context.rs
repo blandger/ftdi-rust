@@ -553,43 +553,47 @@ impl ftdi_context {
             };
             if has_descriptor {
                 let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
-                info!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
-                // print_debug_device_descriptor(handle, &descriptor, speed);
+                info!("Check USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
+                // println!("USB ID [{:?}] : {:04x}:{:04x}", usb_dev_index, descriptor.idVendor, descriptor.idProduct);
+
                 // extract all usb devices OR only specified by vendor and product ids
                 if vendor > 0 && product > 0 && descriptor.idVendor == vendor && descriptor.idProduct == product {
                     if unsafe { ffi::libusb_open(*dev, &mut handle) } < 0 {
                         warn!("Couldn't open device [{:?}], some information will be missing", usb_dev_index);
                     } else {
-                        debug!("found FTDI usb device by index = [{}]", usb_dev_index);
+                        info!("FTDI usb device is Found by an index = [{}]", usb_dev_index);
                         print_debug_device_descriptor(handle, &descriptor, speed);
-                        // self.usb_dev = Some(handle); // assign found FTDI device
-                        let product_descriptor =
-                            super::ftdi_device_list::get_string_descriptor(handle, descriptor.iProduct);
-                        if description != None && product_descriptor != None && !description.eq(&product_descriptor.into()) {
-                            if !handle.is_null() {
-                                // unsafe { ffi::libusb_close(handle) };
+
+                        if description.is_some() {
+                            let product_descriptor =
+                                super::ftdi_device_list::get_string_descriptor(handle, descriptor.iProduct);
+                            if product_descriptor.is_some() && description.eq(&product_descriptor.unwrap().into()) {
                                 self.usb_dev = Some(handle);
+                                continue; // skip device because it was found and tested
                             }
-                            continue; // skip device
                         }
-                        let serial_number =
-                            super::ftdi_device_list::get_string_descriptor(handle, descriptor.iSerialNumber);
-                        if serial != None && serial_number != None && !serial.eq(&serial_number) {
-                            if !handle.is_null() {
-                                // unsafe { ffi::libusb_close(handle) };
-                                self.usb_dev = Some(handle);
+
+                        if serial.is_some() {
+                            let serial_number =
+                                super::ftdi_device_list::get_string_descriptor(handle, descriptor.iSerialNumber);
+                            if serial.is_some() && serial_number.is_some() && !serial.eq(&serial_number.unwrap().into()) {
+                                if !handle.is_null() {
+                                    self.usb_dev = Some(handle);
+                                }
+                                continue; // skip device because it was found and tested
                             }
-                            continue; // skip device
                         }
                     }
+                    self.usb_dev = Some(handle);
+                    continue; // skip device because it was found and tested
                 }
+                // if !handle.is_null() {
+                    unsafe { ffi::libusb_close(handle) };
+                // }
                 usb_dev_index += 1;
             }
             if index > 0 {
                 index -= index;
-                if !handle.is_null() {
-                    unsafe { ffi::libusb_close(handle) };
-                }
             }
         }
         debug!("stored usb device quantity = [{}]", device_list.number_found_devices);
