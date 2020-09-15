@@ -4,16 +4,20 @@ use log::{debug, info, error};
 use log4rs;
 use signal_hook;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    atomic,
+    atomic::{AtomicBool, Ordering}
+};
 use clap::{value_t, Arg, App};
 use ftdi_library::ftdi::constants::{ftdi_interface, ftdi_stopbits_type, ftdi_bits_type, ftdi_parity_type};
 use ftdi_library::ftdi::core::FtdiError;
 
 #[cfg(target_os = "linux")]
-const PATH_TO_YAML_LOG_CONFIG:&'static str = "./log4rs.yaml"; // string path to log config
+const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml"; // string path to log config
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml";
 
+#[cfg(not(windows))] // not for windows !
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // construction for command line parameters
     let matches = App::new("Simple serial test check read/write.")
@@ -87,9 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buffer = (0..1024).map(|x| pattern_to_write).collect();
     }
 
-    let term = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
-
     let mut ftdi = ftdi_context::new()?;
     info!("ftdi context in created - OK");
 
@@ -112,14 +113,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Open device
         ftdi.ftdi_usb_open(vid, pid)?;
     }
-    ftdi.ftdi_set_baudrate(baudrate)?;
-    ftdi.ftdi_set_line_property(ftdi_bits_type::BITS_8, ftdi_stopbits_type::STOP_BIT_1, ftdi_parity_type::NONE)?;
+
+    // first to check if USB was really opened
+    if ftdi.usb_dev.is_some() {
+        ftdi.ftdi_set_baudrate(baudrate)?;
+        ftdi.ftdi_set_line_property(ftdi_bits_type::BITS_8, ftdi_stopbits_type::STOP_BIT_1, ftdi_parity_type::NONE)?;
+    }
+
+    let term = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
 
     let mut write_read_result = 0;
-    while !term.load(Ordering::Relaxed) {
+    while !term.load(Ordering::Relaxed) && ftdi.usb_dev.is_some() /* if USB opened */ {
         // Do some time-limited stuff here
         // (if this could block forever, then there's no guarantee the signal will have any
         // effect).
+        atomic::spin_loop_hint();
 
         if do_write {
             write_read_result = ftdi.ftdi_write_data(&mut buffer
@@ -129,15 +138,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             //     Ok(written_number) => { debug!("written bytes = {}", written_number); }
             // }
             debug!("written bytes = {}", write_read_result);
-        } /*else {
-            write_read_result = ftdi.ftdi_read_data(&buffer/*, sizeof(buf)*/)?;
-            match write_read_result {
-                Err(err) => { error!("{}", err); },
-                Ok(read_number) => { debug!("read bytes = {}", read_number); }
-            }
+        } else {
+            debug!("read bytes = {}", write_read_result);
+            // write_read_result = ftdi.ftdi_read_data(&buffer/*, sizeof(buf)*/)?;
+            // match write_read_result {
+            //     Err(err) => { error!("{}", err); },
+            //     Ok(read_number) => { debug!("read bytes = {}", read_number); }
+            // }
             // println!("read result = {} bytes\n", f);
-        }*/
-
+        }
     }
+    debug!("got signal to exit !");
     Ok(())
 }
