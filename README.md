@@ -27,6 +27,10 @@ Here is a short tutorial on how to build from git under Ubuntu and other similar
 #### Install dependencies
 > sudo apt-get install libusb-1.0-devel
 
+OR 
+
+> sudo apt-get install libusb-1.0-0-dev
+
 (yum install libusb-devel)
 (if the system comes with older version like 1.0.8 or earlier, it is recommended you build libusbx-1.0.14 or later).
 
