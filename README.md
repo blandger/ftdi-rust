@@ -1,5 +1,7 @@
 # ftdi-rust
 
+[![Build Status](https://travis-ci.com/blandger/ftdi-rust.svg?branch=master)](https://travis-ci.com/blandger/ftdi-rust)
+
 An attempt to port FDTI c library version into rust lang.
 
 ## Driver installation
