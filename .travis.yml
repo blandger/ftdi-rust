@@ -1,6 +1,6 @@
 before_install:
   - sudo apt-get update
-  - sudo apt-get -y install libusb-1.0-devel
+  - sudo apt-get -y install libusb-1.0-0-dev
 
 language: rust
 
