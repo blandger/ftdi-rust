@@ -19,6 +19,7 @@ Here is a short tutorial on how to build from git under Ubuntu and other similar
 > sudo apt-get install build-essential
 
 (yum install make automake gcc gcc-c++ kernel-devel)
+
 > sudo apt-get install git-core
 
 (yum install git)
