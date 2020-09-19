@@ -1140,7 +1140,7 @@ impl ftdi_context {
 
     /// Writes data in chunks (see ftdi_write_data_set_chunksize()) to the chip
     /// buf Vector is buffer with the data and size
-    pub fn ftdi_write_data(&self, buffer: &mut Vec<u8>) -> Result<usize> {
+    pub fn ftdi_write_data(&self, buffer: &mut Vec<u8>, size_to_write: u32) -> Result<usize> {
         debug!("start 'ftdi_write_data' ...");
         self.check_usb_device()?;
 
@@ -1153,15 +1153,14 @@ impl ftdi_context {
         let mut buf_data_ptr: *mut c_uchar;
         let actualy_written_data_length: u32 = 0;
         let actual_written_data_length_ptr: *mut c_int = actualy_written_data_length as *mut c_int;
-        while (offset as usize) < full_buf_size {
+        while offset < size_to_write {
             let mut write_size = self.writebuffer_chunksize;
-            if offset + write_size < full_buf_size as u32 {
-                let upper_bound = offset + write_size;
-                buf_data_ptr = buffer[(offset as usize)..(upper_bound as usize)].as_mut_ptr() as *mut c_uchar;
+            if offset + write_size > size_to_write as u32 {
+                let write_size = size_to_write - offset;
+                buf_data_ptr = buffer[(offset as usize)..(write_size as usize)].as_mut_ptr() as *mut c_uchar;
             } else {
-                let lower_bound = (full_buf_size - (offset + write_size) as usize) as usize;
-                write_size = (full_buf_size - lower_bound) as u32;
-                buf_data_ptr = buffer[lower_bound..].as_mut_ptr() as *mut c_uchar;
+                write_size = size_to_write;
+                buf_data_ptr = buffer[0..].as_mut_ptr() as *mut c_uchar;
             }
             if unsafe {
                 ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),

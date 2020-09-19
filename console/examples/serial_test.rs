@@ -4,9 +4,12 @@ use log::{debug, info, error};
 use log4rs;
 use signal_hook;
 use std::sync::Arc;
-use std::sync::{
-    atomic,
-    atomic::{AtomicBool, Ordering}
+use std::{
+    {thread, time},
+    sync::{
+        atomic,
+        atomic::{AtomicBool, Ordering}
+    }
 };
 use clap::{value_t, Arg, App};
 use ftdi_library::ftdi::constants::{ftdi_interface, ftdi_stopbits_type, ftdi_bits_type, ftdi_parity_type};
@@ -131,21 +134,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         atomic::spin_loop_hint();
 
         if do_write {
-            write_read_result = ftdi.ftdi_write_data(&mut buffer
-                                /*, (baudrate / 512 > sizeof(buf)) ? sizeof(buf) :  (baudrate / 512) ? baudrate / 512 : 1*/)?;
-            // match write_read_result {
-            //     Err(err) => { error!("{}", err); },
-            //     Ok(written_number) => { debug!("written bytes = {}", written_number); }
-            // }
+            let size_to_write = if (baudrate / 512) > buffer.len() as i32 { buffer.len() as i32 }
+                else { if (baudrate / 512) > 0 { baudrate / 512 as i32 } else { 1 as i32 } };
+            let write_result = ftdi.ftdi_write_data(&mut buffer, size_to_write as u32);
+            match write_result {
+                Err(err) => {
+                    error!("Write {}", err);
+                    write_read_result = 0;
+                },
+                Ok(written_number) => {
+                    debug!("written bytes = {}", written_number);
+                    write_read_result = written_number;
+                },
+            }
             debug!("written bytes = {}", write_read_result);
         } else {
             debug!("read bytes = {}", write_read_result);
-            // write_read_result = ftdi.ftdi_read_data(&buffer/*, sizeof(buf)*/)?;
-            // match write_read_result {
-            //     Err(err) => { error!("{}", err); },
-            //     Ok(read_number) => { debug!("read bytes = {}", read_number); }
+            // read_result = ftdi.ftdi_read_data(&buffer/*, sizeof(buf)*/)?;
+            // match read_result {
+            //     Err(err) => {
+            //          error!("{}", err);
+            //          write_read_result = 0;
+            //     },
+            //     Ok(read_number) => {
+            //          debug!("read bytes = {}", read_number);
+            //          write_read_result = read_number;
+            //     },
             // }
             // println!("read result = {} bytes\n", f);
+        }
+        if write_read_result < 0 {
+            let sleep_millis = time::Duration::from_millis(1_000_000);
+            thread::sleep(sleep_millis);
+        } else if write_read_result > 0 && !do_write {
+            info!("read {} bytes", write_read_result);
+            // fwrite(buf, f, 1, stdout);
+            // fflush(stderr);
+            // fflush(stdout);
         }
     }
     debug!("got signal to exit !");
