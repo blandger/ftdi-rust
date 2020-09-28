@@ -18,3 +18,4 @@ log = "0.4.11"
 log4rs = "0.12"
 signal-hook = "0.1.16"
 clap = "2.3"
+snafu = { version = "0.6.9", features = ["backtrace"] }

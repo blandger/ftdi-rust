@@ -15,10 +15,9 @@ libc = "0.2.71"
 libusb-sys = "0.2.3"
 #libusb-sys = { path = "../../libusb-sys" }
 bytes = "0.5.4"
-snafu = "0.6.8"
+snafu = { version = "0.6.9", features = ["backtrace"] }
 log = { version = "0.4.11", features = ["max_level_debug", "release_max_level_warn"] }
 #log4rs = "0.12"
 linuxver = "0.1.0"
 
-#[build-dependencies]
 #pkg-config = "0.3.2"
