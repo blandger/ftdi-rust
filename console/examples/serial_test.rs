@@ -14,6 +14,7 @@ use std::{
 use clap::{value_t, Arg, App};
 use ftdi_library::ftdi::constants::{ftdi_interface, ftdi_stopbits_type, ftdi_bits_type, ftdi_parity_type};
 use ftdi_library::ftdi::core::FtdiError;
+use snafu::{Backtrace, GenerateBacktrace};
 
 #[cfg(target_os = "linux")]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml"; // string path to log config
@@ -82,7 +83,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let do_write = matches.is_present("w");
     let pattern_to_write = value_t!(matches.value_of("w"), u8).unwrap_or(0xff); // setup to default 255 value
     if pattern_to_write > 0xff {
-        let error = FtdiError::UsbCommonError { code: -80, message: "a pattern to write should be a valid byte (u8) value".to_string() };
+        let error = FtdiError::UsbCommonError { code: -80, message: "a pattern to write should be a valid byte (u8) value".to_string(),
+            backtrace: GenerateBacktrace::generate()
+        };
         error!("{}", error);
         return Err(Box::new(error));
     }

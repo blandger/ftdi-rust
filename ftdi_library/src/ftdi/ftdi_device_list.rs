@@ -4,6 +4,7 @@ use libusb_sys as ffi;
 use libc::{c_int,c_uchar};
 use std::{mem::{MaybeUninit}, slice, ptr};
 use log::{debug, info, error};
+use snafu::{GenerateBacktrace};
 use crate::ftdi::core::{FtdiError, Result};
 use crate::ftdi::ftdi_context::ftdi_context;
 
@@ -23,7 +24,9 @@ impl ftdi_device_list {
         debug!("start new ftdi_device_list...");
         // check ftdi context
         if ftdi.usb_ctx == None {
-            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string()};
+            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string(),
+                backtrace: GenerateBacktrace::generate()
+            };
             error!("{}", error);
             return Err(error);
         }
@@ -71,7 +74,9 @@ impl ftdi_device_list {
     pub fn ftdi_usb_find_all(&mut self, ftdi: &mut ftdi_context, vendor: u16, product: u16) -> Result<Self> {
         // check ftdi context
         if ftdi.usb_ctx == None {
-            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string()};
+            let error = FtdiError::UsbInit {code: -100, message: "ftdi context is not initialized previously".to_string(),
+                backtrace: GenerateBacktrace::generate()
+            };
             error!("{}", error);
             return Err(error);
         }
@@ -98,7 +103,9 @@ impl ftdi_device_list {
                     true
                 },
                 _err => {
-                    error!("{}", FtdiError::UsbCommandError{code: -6, message: "libusb_get_device_descriptor() failed".to_string()});
+                    error!("{}", FtdiError::UsbCommandError{code: -6, message: "libusb_get_device_descriptor() failed".to_string(),
+                        backtrace: GenerateBacktrace::generate()
+                    });
                     false
                 },
             };
@@ -143,7 +150,9 @@ impl ftdi_device_list {
 
         let get_device_list_result = unsafe { ffi::libusb_get_device_list(ftdi.usb_ctx.unwrap(), device_list_uninit.as_mut_ptr()) };
         if get_device_list_result < 0 {
-            let result = FtdiError::UsbCommandError { code: -5, message: "libusb_get_device_list() failed".to_string() };
+            let result = FtdiError::UsbCommandError { code: -5, message: "libusb_get_device_list() failed".to_string(),
+                backtrace: GenerateBacktrace::generate()
+            };
             error!("{}", result);
             return Err(result);
         }

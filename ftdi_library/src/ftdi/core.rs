@@ -15,26 +15,29 @@ use linuxver::version;
 use crate::ftdi::ftdi_context::ftdi_context;
 
 
-pub type Result<T, E = FtdiError> = std::result::Result<T, E>;
-
-#[derive(Debug, PartialEq, Snafu)]
+#[derive(Debug, Snafu)]
 pub enum FtdiError {
-    #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'", code, message))]
+    #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
     UsbInit {
         code: i32,
         message: String,
+        backtrace: Backtrace,
     },
-    #[snafu(display("USB SYS COMMAND: error code: \'{}\', message: \'{}\'", code, message))]
+    #[snafu(display("USB SYS COMMAND: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
     UsbCommandError {
         code: i32,
         message: String,
+        backtrace: Backtrace,
     },
-    #[snafu(display("COMMON ERROR: error code: \'{}\', message: \'{}\'", code, message))]
+    #[snafu(display("COMMON ERROR: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
     UsbCommonError {
         code: i32,
         message: String,
+        backtrace: Backtrace,
     }
 }
+
+pub type Result<T, E = FtdiError> = std::result::Result<T, E>;
 
 // #[derive(Copy, Debug)]
 #[repr(C)]

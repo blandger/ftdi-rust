@@ -4,13 +4,14 @@ use ::ftdi_library::ftdi::ftdi_version_info::ftdi_version_info;
 use log::{info};
 use log4rs;
 use ftdi_library::ftdi::constants::ftdi_chip_type;
+use ftdi_library::ftdi::ftdi_context::FtdiContextError;
 
 #[cfg(target_os = "linux")]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "./log4rs.yaml"; // string path to log config
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml";
 
-fn main() -> Result<(), FtdiError> {
+fn main() -> Result<(), FtdiContextError> {
     match log4rs::init_file(PATH_TO_YAML_LOG_CONFIG, Default::default()) {
         Ok(_) => println!("log4rs config file is found - OK"),
         Err(error) => println!("Log config not found as \'{}\', error: \'{}\'", PATH_TO_YAML_LOG_CONFIG, error),
