@@ -20,4 +20,5 @@ log = { version = "0.4.11", features = ["max_level_debug", "release_max_level_wa
 #log4rs = "0.12"
 linuxver = "0.1.0"
 
-#pkg-config = "0.3.2"
+[build-dependencies]
+pkg-config = "0.3.2"

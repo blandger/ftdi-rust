@@ -17,7 +17,7 @@ use std::{
     cmp::PartialEq
 };
 
-use libc::{c_int, c_uchar, c_void, EPERM};
+use libc::{c_int, c_uchar, c_char, c_void, EPERM};
 use libusb_sys as ffi;
 use linuxver::version;
 use log::{debug, error, info, warn};
@@ -31,6 +31,11 @@ use crate::ftdi::{
     ftdi_device_list::{ftdi_device_list, print_debug_device_descriptor}
 };
 use crate::scanf;
+
+/*#[link(name = "libusb-1.0")]
+extern "C" fn call_libusb_log_cb(_context: *mut ffi::libusb_context, log_level: c_int, log_message: *const c_char) {
+    println!("USB_CallBack - {:?} : {:?}", log_level, log_message);
+}*/
 
 #[derive(Debug, /*PartialEq, */Snafu)]
 pub enum FtdiContextError {
@@ -71,13 +76,13 @@ impl From<crate::ftdi::core::FtdiError> for FtdiContextError {
 impl PartialEq for FtdiContextError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (FtdiContextError::UsbInit {code: code, message: message, backtrace: _trace },
+            (FtdiContextError::UsbInit {code, message, backtrace: _trace },
                 FtdiContextError::UsbInit {code: code2, message: message2, backtrace: _trace2})
                     => code == code2 && message.eq(&message2.as_str()),
-            (FtdiContextError::UsbCommandError {code: code, message: message, backtrace: _trace },
+            (FtdiContextError::UsbCommandError {code, message, backtrace: _trace },
                 FtdiContextError::UsbCommandError {code: code2, message: message2, backtrace: _trace2})
                     => code == code2 && message.eq(&message2.as_str()),
-            (FtdiContextError::UsbCommonError {code: code, message: message, backtrace: _trace },
+            (FtdiContextError::UsbCommonError {code, message, backtrace: _trace },
                 FtdiContextError::UsbCommonError {code: code2, message: message2, backtrace: _trace2})
                     => code == code2 && message.eq(&message2.as_str()),
             _ => false
@@ -194,7 +199,7 @@ impl ftdi_context {
     const H_CLK: i32 = 120000000;
     const C_CLK: i32 =  48000000;
 
-    /// Helper functiona to convert USB system error code into FtdiError enum
+    /// Helper function to convert USB system error code into FtdiContextError enum
     pub fn get_usb_sys_init_error(err: c_int) -> FtdiContextError {
         match err {
             ffi::LIBUSB_SUCCESS             => FtdiContextError::UsbInit{code: 0, message: "success".to_string(), backtrace: GenerateBacktrace::generate()},
@@ -250,7 +255,15 @@ impl ftdi_context {
         match unsafe { ffi::libusb_init(context_uninit.as_mut_ptr()) } {
             0 => {
                 debug!("ftdi context initialized - OK!");
-                context = unsafe { context_uninit.assume_init() }
+                context = unsafe { context_uninit.assume_init() };
+                unsafe {
+                    ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_DEBUG);
+                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_INFO);
+                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_WARNING);
+                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_ERROR);
+                    // ffi::libusb_set_debug(context, ::ffi::LIBUSB_LOG_LEVEL_NONE);
+                }
+                // unsafe { ffi::libusb_set_log_cb(context, call_libusb_log_cb, ffi::LIBUSB_LOG_LEVEL_DEBUG) };
             },
             sys_error => {
                 // Err(ftdi_context::get_error(e))
@@ -377,7 +390,9 @@ impl ftdi_context {
         }
     }
 
-    fn ftdi_usb_close_internal_handle(&mut self, device_handle: *mut ffi::libusb_device_handle) {
+    // fn ftdi_usb_close_internal_handle(&mut self, device_handle: *mut ffi::libusb_device_handle) {
+    // fn ftdi_usb_close_internal_handle(&mut self, device_handle: &*mut ffi::libusb_device) {
+    fn ftdi_usb_close_internal_handle(&mut self) {
         if self.usb_dev.is_some() {
             unsafe { ffi::libusb_close(self.usb_dev.unwrap()) };
             self.usb_dev = None;
@@ -387,10 +402,10 @@ impl ftdi_context {
         } else {
             debug!("Nothing to close...");
         }
-        if !device_handle.is_null() {
-            unsafe { ffi::libusb_close(device_handle) };
-            // device_handle = ptr::null_mut();
-        }
+        // if !device_handle.is_null() {
+        //     unsafe { ffi::libusb_close(device_handle) };
+        //     // device_handle = ptr::null_mut();
+        // }
     }
 
     /// Return device ID strings from the usb device.
@@ -473,7 +488,7 @@ impl ftdi_context {
         self.check_usb_context_initialized()?;
 
         let mut device_handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-        if unsafe { ffi::libusb_open(dev.cast(), &mut device_handle) } < 0 {
+        if unsafe { ffi::libusb_open(*dev, &mut device_handle) } < 0 {
             warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
             let error = FtdiContextError::UsbInit { code: -4, message: "libusb_open() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
@@ -665,9 +680,11 @@ impl ftdi_context {
                 // extract all usb devices OR only specified by vendor and product ids
                 if vendor > 0 && product > 0 && descriptor.idVendor == vendor && descriptor.idProduct == product {
                     if unsafe { ffi::libusb_open(*dev, &mut handle) } < 0 {
-                        warn!("Couldn't open device [{:?}], some information will be missing", usb_dev_index);
+                        warn!("Couldn't open found device [{:?}], some information will be missing", usb_dev_index);
                     } else {
-                        info!("FTDI usb device is Found by an index = [{}]", usb_dev_index);
+                        info!("FTDI usb device is Opened, index = [{}], vendor={}, product={}",
+                              usb_dev_index, descriptor.idVendor, descriptor.idProduct);
+                        self.usb_dev = Some(handle);
                         print_debug_device_descriptor(handle, &descriptor, speed);
 
                         if description.is_some() {
@@ -690,7 +707,8 @@ impl ftdi_context {
                             }
                         }
                     }
-                    self.ftdi_usb_close_internal_handle(handle); // close USB device handle
+                    // self.ftdi_usb_close_internal_handle(handle); // close USB device handle
+                    self.ftdi_usb_close_internal_handle(); // close internally stored USB device handle
                     if index > 0 {
                         index -= index;
                     }

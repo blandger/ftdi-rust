@@ -1,4 +1,3 @@
-use ::ftdi_library::ftdi::core::{FtdiError};
 use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
 use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
 use log::{info};

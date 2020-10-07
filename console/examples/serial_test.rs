@@ -93,8 +93,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
              interface, vid, pid, baudrate, do_write, pattern_to_write);
 
     let mut buffer:Vec<u8> = Vec::with_capacity(1024);
-    if (do_write) {
-        buffer = (0..1024).map(|x| pattern_to_write).collect();
+    if do_write {
+        buffer = (0..1024).map(|_| pattern_to_write).collect();
     }
 
     let mut ftdi = ftdi_context::new()?;
