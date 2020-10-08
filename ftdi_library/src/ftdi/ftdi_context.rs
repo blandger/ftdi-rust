@@ -225,7 +225,7 @@ impl ftdi_context {
     /// ```rust,no_run
     ///use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
     ///
-    ///  let ftdi_context = ftdi_context::new();
+    ///  let ftdi_context = ftdi_context::new(None);
     ///     match ftdi_context {
     ///         Ok(ftdi) => {
     ///             // use ftdi instance
@@ -243,11 +243,11 @@ impl ftdi_context {
     ///use ::ftdi_library::ftdi::ftdi_context::FtdiContextError;
     ///
     ///fn main() -> Result<(), FtdiContextError> {
-    ///    let mut ftdi = ftdi_context::new()?;
+    ///    let mut ftdi = ftdi_context::new(Some(4))?; // ffi::LIBUSB_LOG_LEVEL_DEBUG
     ///    Ok(())
     ///}
     /// ```
-    pub fn new() -> Result<Self> {
+    pub fn new(usb_log_level: Option<c_int>) -> Result<Self> {
         debug!("start \'new\' ftdi context creation...");
         let mut context_uninit: MaybeUninit::<*mut ffi::libusb_context> = MaybeUninit::uninit();
         let context: *mut ffi::libusb_context;
@@ -256,14 +256,12 @@ impl ftdi_context {
             0 => {
                 debug!("ftdi context initialized - OK!");
                 context = unsafe { context_uninit.assume_init() };
-                unsafe {
-                    ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_DEBUG);
-                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_INFO);
-                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_WARNING);
-                    // ffi::libusb_set_debug(context, ffi::LIBUSB_LOG_LEVEL_ERROR);
-                    // ffi::libusb_set_debug(context, ::ffi::LIBUSB_LOG_LEVEL_NONE);
+                if usb_log_level.is_some() {
+                    unsafe {
+                        ffi::libusb_set_debug(context, usb_log_level.unwrap());
+                        // ffi::libusb_set_log_cb(context, call_libusb_log_cb, usb_log_level.unwrap())
+                    }
                 }
-                // unsafe { ffi::libusb_set_log_cb(context, call_libusb_log_cb, ffi::LIBUSB_LOG_LEVEL_DEBUG) };
             },
             sys_error => {
                 // Err(ftdi_context::get_error(e))
@@ -415,13 +413,13 @@ impl ftdi_context {
     /// Note - Use this function only in combination with ftdi_usb_find_all()
     ///    as it closes the internal "usb_dev" after use.
     /// param dev libusb usb_dev to use
-    pub fn ftdi_usb_get_strings(&mut self, dev: *const *mut ffi::libusb_device)
+    pub fn ftdi_usb_get_strings(&mut self, device: *const *mut ffi::libusb_device)
                                 -> Result<(Option<String>, Option<String>, Option<String>)> {
         debug!("start \'ftdi_usb_get_strings\' ...");
         if self.usb_dev == None {
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-            if unsafe { ffi::libusb_open(dev.cast(), &mut handle) } < 0 {
-                warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
+            if unsafe { ffi::libusb_open(*device, &mut handle) } < 0 {
+                warn!("Couldn't open device [{:?}], some information will be missing", device.type_id());
                 let error = FtdiContextError::UsbInit { code: -4, message: "libusb_open() failed".to_string(),
                     backtrace: GenerateBacktrace::generate()
                 };
@@ -429,9 +427,9 @@ impl ftdi_context {
                 return Err(error);
             }
             self.usb_dev = Some(handle);
-            self.ftdi_usb_get_strings2(handle)
+            self.ftdi_usb_get_strings2(device)
         } else {
-            self.ftdi_usb_get_strings2(self.usb_dev.unwrap())
+            self.ftdi_usb_get_strings2(device)
         }
     }
 
@@ -439,15 +437,13 @@ impl ftdi_context {
     ///
     /// The parameter's manufacturer, description and serial may be None
     /// This version only closes the device if it was opened by it.
-    fn ftdi_usb_get_strings2(&self, device_handle: *mut ffi::libusb_device_handle)
+    fn ftdi_usb_get_strings2(&self, device: *const *mut ffi::libusb_device)
                              -> Result<(Option<String>, Option<String>, Option<String>)> {
         debug!("start \'ftdi_usb_get_strings\' ...");
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
-        // unsafe { descriptor_uninit.as_mut_ptr().write(true); }
-        // let descriptor_uninit: std::mem::MaybeUninit<ffi::libusb_device_descriptor> as Trait>::zeroed;
-        // let mut descriptor = unsafe { descriptor_uninit.assume_init() };
+
         let read_descriptor_result = unsafe {
-            ffi::libusb_get_device_descriptor(device_handle.cast(), descriptor_uninit.as_mut_ptr())
+            ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr())
         };
         let has_descriptor = match read_descriptor_result {
             0 => {
@@ -462,14 +458,14 @@ impl ftdi_context {
         if has_descriptor {
             let descriptor = unsafe { descriptor_uninit.assume_init() };
             info!("USB ID : {:04x} : {:04x} : {}", descriptor.idVendor, descriptor.idProduct, descriptor.iSerialNumber);
-            print_debug_device_descriptor(device_handle, &descriptor, 0);
+            print_debug_device_descriptor(self.usb_dev.unwrap(), &descriptor, 0);
 
             let manufacturer_descriptor =
-                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iManufacturer);
+                super::ftdi_device_list::get_string_descriptor(self.usb_dev.unwrap(), descriptor.iManufacturer);
             let product_descriptor =
-                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iProduct);
+                super::ftdi_device_list::get_string_descriptor(self.usb_dev.unwrap(), descriptor.iProduct);
             let serial_number =
-                super::ftdi_device_list::get_string_descriptor(device_handle, descriptor.iSerialNumber);
+                super::ftdi_device_list::get_string_descriptor(self.usb_dev.unwrap(), descriptor.iSerialNumber);
             debug!("All data is fetched from device: {:?}, {:?}, {:?}", manufacturer_descriptor, product_descriptor, serial_number);
             return Ok( (manufacturer_descriptor, product_descriptor, serial_number) );
         } else {
@@ -482,23 +478,25 @@ impl ftdi_context {
     /// Opens a ftdi device given by an usb_device.
     ///
     ///  param dev libusb usb_dev to use
-    pub fn ftdi_usb_open_dev(&mut self, dev: *const *mut ffi::libusb_device) -> Result<()> {
+    pub fn ftdi_usb_open_dev(&mut self, device: *const *mut ffi::libusb_device) -> Result<()> {
         debug!("start \'ftdi_usb_open_dev\' ...");
         // check ftdi context
         self.check_usb_context_initialized()?;
 
         let mut device_handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-        if unsafe { ffi::libusb_open(*dev, &mut device_handle) } < 0 {
-            warn!("Couldn't open device [{:?}], some information will be missing", dev.type_id());
+        if unsafe { ffi::libusb_open(*device, &mut device_handle) } < 0 {
+            warn!("Couldn't open device [{:?}], some information will be missing", device.type_id());
             let error = FtdiContextError::UsbInit { code: -4, message: "libusb_open() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
             error!("{}", error);
             return Err(error);
         }
+        self.usb_dev = Some(device_handle); // store handle
+        device_handle = ptr::null_mut(); // nullify after storing
 
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_device_descriptor(device_handle.cast(), descriptor_uninit.as_mut_ptr()) } < 0 {
+        if unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
@@ -509,7 +507,7 @@ impl ftdi_context {
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
         let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(device_handle.cast(), 0, *configuraton_uninit.as_ptr()) } < 0 {
+        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuraton_uninit.as_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
@@ -530,7 +528,7 @@ impl ftdi_context {
         // detach operation might be denied and everything still works fine.
         // Likely scenario is a static ftdi_sio kernel module.
         if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_SIO_MODULE {
-            match unsafe { ffi::libusb_detach_kernel_driver(device_handle, self.interface as c_int) } {
+            match unsafe { ffi::libusb_detach_kernel_driver(self.usb_dev.unwrap(), self.interface as c_int) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' - OK!")
                 },
@@ -541,7 +539,7 @@ impl ftdi_context {
                 }
             }
         } else if self.module_detach_mode == ftdi_module_detach_mode::AUTO_DETACH_REATACH_SIO_MODULE {
-            match unsafe { ffi::libusb_set_auto_detach_kernel_driver(device_handle, 1) } {
+            match unsafe { ffi::libusb_set_auto_detach_kernel_driver(self.usb_dev.unwrap(), 1) } {
                 0 => {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' - OK!")
                 },
@@ -552,7 +550,7 @@ impl ftdi_context {
                 }
             }
         }
-        if unsafe { ffi::libusb_get_configuration (device_handle, cfg as *mut c_int) } < 0 {
+        if unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), cfg as *mut c_int) } < 0 {
             let error = FtdiContextError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
@@ -560,7 +558,8 @@ impl ftdi_context {
             return Err(error);
         }
         if descriptor.bNumConfigurations > 0 && (cfg != cfg0 as *mut c_int) {
-            if unsafe { ffi::libusb_set_configuration(device_handle, cfg0) }  < 0 {
+            if unsafe { ffi::libusb_set_configuration(self.usb_dev.unwrap(), cfg0) }  < 0 {
+                self.ftdi_usb_close_internal();
                 if detach_errno == EPERM {
                     let error = FtdiContextError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string(),
                         backtrace: GenerateBacktrace::generate()
@@ -577,8 +576,37 @@ impl ftdi_context {
                 }
             }
         }
-        self.usb_dev = Some(device_handle);
-        self.ftdi_usb_reset()?;
+
+        if unsafe { ffi::libusb_claim_interface(self.usb_dev.unwrap(),self.interface as c_int) } < 0 {
+            self.ftdi_usb_close_internal();
+            if detach_errno == EPERM {
+                let error = FtdiContextError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string(),
+                    backtrace: GenerateBacktrace::generate()
+                };
+                error!("{}", error);
+                return Err(error);
+            } else {
+                let error = FtdiContextError::UsbCommandError { code: -5,
+                    message: "unable to claim usb device. Make sure the default FTDI driver is not in use".to_string(),
+                    backtrace: GenerateBacktrace::generate()
+                };
+                error!("{}", error);
+                return Err(error);
+            }
+        }
+
+        match self.ftdi_usb_reset() {
+            Ok( () ) => { /* nothing to do */ },
+            Err(error) => {
+                self.ftdi_usb_close_internal();
+                let error = FtdiContextError::UsbCommandError { code: -6,
+                    message: "ftdi_usb_reset failed".to_string(),
+                    backtrace: GenerateBacktrace::generate()
+                };
+                error!("{}", error);
+                return Err(error);
+            }
+        }
 
         // Try to guess chip type
         // Bug in the BM type chips: bcdDevice is 0x200 for serial == 0
@@ -606,7 +634,7 @@ impl ftdi_context {
             return Err(error);
         }
         // Determine maximum packet size
-        self.max_packet_size = self.ftdi_determine_max_packet_size()?;
+        self.max_packet_size = self.ftdi_determine_max_packet_size(device)?;
         self.ftdi_set_baudrate(9600)?;
         debug!("ftdi_usb_open_dev - OK");
         Ok(())
@@ -1818,10 +1846,13 @@ impl ftdi_context {
 
     /// Internal function to determine the maximum packet size.
     ///  Return Maximum packet size for this device
-    fn ftdi_determine_max_packet_size(&mut self) -> Result<i32> {
+    fn ftdi_determine_max_packet_size(&mut self, device: *const *mut ffi::libusb_device) -> Result<i32> {
         debug!("start \'ftdi_usb_open_busftdi_determine_max_packet_size");
-        self.check_usb_device()?;
-        let mut packet_size: i32 = 0;
+        let mut packet_size: i32 = 64;
+        match self.check_usb_device() {
+            Ok( () ) => { /* nothing to do */ },
+            Err(_) => return Ok(packet_size) // return default
+        }
         // Determine maximum packet size. Init with default value.
         // New hi-speed devices from FTDI use a packet size of 512 bytes
         // but could be connected to a normal speed USB hub -> 64 bytes packet size.
@@ -1833,7 +1864,7 @@ impl ftdi_context {
         }
 
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_device_descriptor(self.usb_dev.unwrap().cast(), descriptor_uninit.as_mut_ptr()) } < 0 {
+        if unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
@@ -1843,7 +1874,7 @@ impl ftdi_context {
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
         let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(self.usb_dev.unwrap().cast(), 0, *configuraton_uninit.as_ptr()) } < 0 {
+        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuraton_uninit.as_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };

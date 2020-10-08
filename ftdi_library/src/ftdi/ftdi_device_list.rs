@@ -65,8 +65,9 @@ impl ftdi_device_list {
     /// ```rust, no_run
     /// use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
     /// use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
+    /// use libc::{c_int};
     ///
-    ///    let mut ftdi = ftdi_context::new().unwrap();
+    ///    let mut ftdi = ftdi_context::new(Some(4)).unwrap(); // ffi::LIBUSB_LOG_LEVEL_DEBUG
     ///    let mut ftdi_list = ftdi_device_list::new(&ftdi).unwrap();
     ///     match ftdi_list.ftdi_usb_find_all(&mut ftdi, 0, 0) {
     ///         Ok(ftdi_usb_list) => {
@@ -202,7 +203,7 @@ pub fn print_debug_device_descriptor(handle: *mut ffi::libusb_device_handle,
     debug!("  iProduct: {:15} {}", descriptor.iProduct, get_string_descriptor(handle, descriptor.iProduct).unwrap_or_default());
     debug!("  iSerialNumber: {:10} {}", descriptor.iSerialNumber, get_string_descriptor(handle, descriptor.iSerialNumber).unwrap_or_default());
     debug!("  bNumConfigurations: {:5}", descriptor.bNumConfigurations);
-    debug!("  Speed: {:#8}\n", get_device_speed(speed));
+    debug!("  Speed: {:>25}\n", get_device_speed(speed));
 }
 
 pub(crate) fn get_descriptor_type(desc_type: u8) -> &'static str {

@@ -10,7 +10,7 @@ mod tests {
 
     #[test]
     fn create_new_ftdi_context() {
-        let ftdi = ftdi_context::new();
+        let ftdi = ftdi_context::new(None);
         match ftdi {
             Ok(_) => {/* all is fine */}
             _ => {
@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn ftdi_usb_find_all() {
-        let mut ftdi = ftdi_context::new().unwrap();
+        let mut ftdi = ftdi_context::new(None).unwrap();
         let mut ftdi_list = ftdi_device_list::new(&ftdi).unwrap();
         match ftdi_list.ftdi_usb_find_all(&mut ftdi, 0, 0) {
             Ok(_) => {}
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn ftdi_usb_open() {
-        let mut ftdi = ftdi_context::new().unwrap();
+        let mut ftdi = ftdi_context::new(None).unwrap();
         match ftdi.ftdi_usb_open(0, 0) {
             Ok(_) => { /* all is fine */ }
             Err(_) => {
@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn ftdi_usb_open_desc_index() {
-        let mut ftdi = ftdi_context::new().unwrap();
+        let mut ftdi = ftdi_context::new(None).unwrap();
         match ftdi.ftdi_usb_open_desc_index(0, 0, None, None, 0) {
             Ok(_) => { /* all is fine */ }
             Err(_) => {

@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buffer = (0..1024).map(|_| pattern_to_write).collect();
     }
 
-    let mut ftdi = ftdi_context::new()?;
+    let mut ftdi = ftdi_context::new(None)?;
     info!("ftdi context in created - OK");
 
     if vid != 0 && pid != 0 && interface != ftdi_interface::INTERFACE_ANY {
