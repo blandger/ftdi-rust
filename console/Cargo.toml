@@ -11,6 +11,7 @@ description = "Console application to check and use Rust library for FTDI chips"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+libc = "0.2.71"
 ftdi_library = { path = "../ftdi_library" }
 libusb-sys = "0.2.3"
 #libusb-sys = { path = "../../libusb-sys" }
