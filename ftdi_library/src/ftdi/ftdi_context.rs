@@ -519,7 +519,9 @@ impl ftdi_context {
         unsafe { ffi::libusb_free_config_descriptor(*configuraton) };
 
         let mut detach_errno = 0;
-        let cfg: *mut c_int = 0 as *mut c_int;
+        let mut cfg: c_int = 0;
+        let p_mut_cfg: *mut c_int = &mut cfg;
+
         // let mut cfg0:c_int = 0;
         // Try to detach ftdi_sio kernel module.
         //
@@ -550,14 +552,14 @@ impl ftdi_context {
                 }
             }
         }
-        if unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), cfg as *mut c_int) } < 0 {
+        if unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), p_mut_cfg) } < 0 {
             let error = FtdiContextError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
             error!("{}", error);
             return Err(error);
         }
-        if descriptor.bNumConfigurations > 0 && (cfg != cfg0 as *mut c_int) {
+        if descriptor.bNumConfigurations > 0 && (cfg != cfg0) {
             if unsafe { ffi::libusb_set_configuration(self.usb_dev.unwrap(), cfg0) }  < 0 {
                 self.ftdi_usb_close_internal();
                 if detach_errno == EPERM {
@@ -1873,15 +1875,15 @@ impl ftdi_context {
         };
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
-        let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuraton_uninit.as_ptr()) } < 0 {
+        let mut configuration_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuration_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
             error!("{}", error);
             return Ok(packet_size);
         };
-        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuraton_uninit.assume_init() };
+        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuration_uninit.assume_init() };
 
         if descriptor.bNumConfigurations > 0 {
             if self.interface < unsafe { (*(*configuraton)).bNumInterfaces } {
