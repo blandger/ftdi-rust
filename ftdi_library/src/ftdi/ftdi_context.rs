@@ -506,21 +506,19 @@ impl ftdi_context {
         };
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
-        let configuraton_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuraton_uninit.as_ptr()) } < 0 {
+        let mut configuration_uninit: MaybeUninit::<*const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
             error!("{}", error);
             return Err(error);
         };
-        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuraton_uninit.assume_init() };
-        let cfg0: c_int = unsafe { (*(*configuraton)).bConfigurationValue as c_int};
-        unsafe { ffi::libusb_free_config_descriptor(*configuraton) };
+        let configuration: *const ffi::libusb_config_descriptor = unsafe { configuration_uninit.assume_init() };
+        let cfg0: c_int = unsafe { (*configuration).bConfigurationValue as c_int};
+        unsafe { ffi::libusb_free_config_descriptor(configuration) };
 
         let mut detach_errno = 0;
-        let mut cfg: c_int = 0;
-        let p_mut_cfg: *mut c_int = &mut cfg;
 
         // let mut cfg0:c_int = 0;
         // Try to detach ftdi_sio kernel module.
@@ -552,6 +550,8 @@ impl ftdi_context {
                 }
             }
         }
+        let mut cfg: c_int = 0;
+        let p_mut_cfg: *mut c_int = &mut cfg;
         if unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), p_mut_cfg) } < 0 {
             let error = FtdiContextError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
@@ -1875,19 +1875,19 @@ impl ftdi_context {
         };
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
-        let mut configuration_uninit: MaybeUninit::<*mut *const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, *configuration_uninit.as_mut_ptr()) } < 0 {
+        let mut configuration_uninit: MaybeUninit::<*const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
+        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) } < 0 {
             let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
                 backtrace: GenerateBacktrace::generate()
             };
             error!("{}", error);
             return Ok(packet_size);
         };
-        let configuraton: *mut *const ffi::libusb_config_descriptor = unsafe { configuration_uninit.assume_init() };
+        let configuration: *const ffi::libusb_config_descriptor = unsafe { configuration_uninit.assume_init() };
 
         if descriptor.bNumConfigurations > 0 {
-            if self.interface < unsafe { (*(*configuraton)).bNumInterfaces } {
-                let local_interface = unsafe { (*(*configuraton)).interface/*[self.interface]*/ };
+            if self.interface < unsafe { (*configuration).bNumInterfaces } {
+                let local_interface = unsafe { (*configuration).interface/*[self.interface]*/ };
                 if unsafe { (*local_interface).num_altsetting } > 0  {
                     let local_descriptor = unsafe { (*local_interface).altsetting/*[0]*/ };
                     if unsafe { (*local_descriptor).bNumEndpoints } > 0 {
@@ -1896,7 +1896,7 @@ impl ftdi_context {
                 }
             }
         }
-        unsafe { ffi::libusb_free_config_descriptor(*configuraton) };
+        unsafe { ffi::libusb_free_config_descriptor(configuration) };
         debug!("\'ftdi_determine_max_packet_size\' - OK : {}", packet_size);
         Ok(packet_size)
     }
