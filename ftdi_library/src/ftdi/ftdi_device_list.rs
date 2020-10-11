@@ -67,16 +67,16 @@ impl ftdi_device_list {
     /// use ::ftdi_library::ftdi::ftdi_device_list::ftdi_device_list;
     /// use libc::{c_int};
     ///
-    ///    let mut ftdi = ftdi_context::new(Some(4)).unwrap(); // ffi::LIBUSB_LOG_LEVEL_DEBUG
+    ///    let mut ftdi = ftdi_context::new_with_log_level(Some(4)).unwrap(); // ffi::LIBUSB_LOG_LEVEL_DEBUG
     ///    let mut ftdi_list = ftdi_device_list::new(&ftdi).unwrap();
     ///     match ftdi_list.ftdi_usb_find_all(&mut ftdi, 0, 0) {
     ///         Ok(ftdi_usb_list) => {
     ///             println!("ftdi_usb_list is OK, found FTDI system_device_list = {:?}", ftdi_usb_list.system_device_list);
     ///             println!("ftdi_list is OK, found FTDI number = {}", ftdi_usb_list.number_found_devices);
-    ///         },
+    ///         }
     ///         Err(internal_error) => {
     ///             println!("{:?}", internal_error);
-    ///         },
+    ///         }
     ///     }
     /// ```
     pub fn ftdi_usb_find_all(&mut self, ftdi: &mut ftdi_context, vendor: u16, product: u16) -> Result<Self> {

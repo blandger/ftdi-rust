@@ -220,20 +220,24 @@ impl ftdi_context {
         }
     }
 
+    pub fn new() -> Result<Self> {
+        ftdi_context::new_with_log_level(None)
+    }
+
     /// Allocate and initialize a new ftdi_context.
     ///
     /// ```rust,no_run
     ///use ::ftdi_library::ftdi::ftdi_context::ftdi_context;
     ///
-    ///  let ftdi_context = ftdi_context::new(None);
+    ///  let ftdi_context = ftdi_context::new();
     ///     match ftdi_context {
     ///         Ok(ftdi) => {
     ///             // use ftdi instance
     ///             println!("ftdi is OK, index = {}", ftdi.index);
-    ///         },
+    ///         }
     ///         Err(internal_error) => {
     ///             println!("{:?}", internal_error);
-    ///         },
+    ///         }
     ///     }
     /// ```
     /// or using without match
@@ -243,12 +247,12 @@ impl ftdi_context {
     ///use ::ftdi_library::ftdi::ftdi_context::FtdiContextError;
     ///
     ///fn main() -> Result<(), FtdiContextError> {
-    ///    let mut ftdi = ftdi_context::new(Some(4))?; // ffi::LIBUSB_LOG_LEVEL_DEBUG
+    ///    let mut ftdi = ftdi_context::new_with_log_level(Some(4))?; // ffi::LIBUSB_LOG_LEVEL_DEBUG
     ///    Ok(())
     ///}
     /// ```
-    pub fn new(usb_log_level: Option<c_int>) -> Result<Self> {
-        debug!("start \'new\' ftdi context creation...");
+    pub fn new_with_log_level(usb_log_level: Option<c_int>) -> Result<Self> {
+        debug!("start \'new\' ftdi context creation, USB log level = {}...", usb_log_level.unwrap_or_default());
         let mut context_uninit: MaybeUninit::<*mut ffi::libusb_context> = MaybeUninit::uninit();
         let context: *mut ffi::libusb_context;
         debug!("ftdi context before init...");
@@ -301,7 +305,7 @@ impl ftdi_context {
         )
     }
 
-    pub fn ftdi_set_interface(&mut self, interface_type: ftdi_interface) {
+        pub fn ftdi_set_interface(&mut self, interface_type: ftdi_interface) {
         debug!("set interface type \'{:?}\' to ftdi context", interface_type);
         match interface_type {
             ftdi_interface::INTERFACE_ANY | ftdi_interface::INTERFACE_A => {

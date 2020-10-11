@@ -15,7 +15,7 @@ fn main() -> Result<(), FtdiContextError> {
         Err(error) => println!("Log config not found as \'{}\', error: \'{}\'", PATH_TO_YAML_LOG_CONFIG, error),
     }
     info!("booting up...");
-    let mut ftdi = ftdi_context::new(None)?;
+    let mut ftdi = ftdi_context::new()?;
     info!("ftdi context in created - OK");
 
     info!("start find all usb device(s)...");

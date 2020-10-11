@@ -20,7 +20,7 @@ fn main() -> Result<(), FtdiContextError> {
 
     info!("booting up...");
     // let mut ftdi = ftdi_context::new(Some(4))?; // ffi::LIBUSB_LOG_LEVEL_DEBUG
-    let mut ftdi = ftdi_context::new(None)?; // ffi::LIBUSB_LOG_LEVEL_NONE
+    let mut ftdi = ftdi_context::new_with_log_level(None)?; // ffi::LIBUSB_LOG_LEVEL_NONE
     info!("ftdi context in created - OK");
 
     let version = ftdi_version_info::ftdi_get_library_version();
