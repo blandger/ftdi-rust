@@ -253,6 +253,17 @@ impl ftdi_context {
     /// ```
     pub fn new_with_log_level(usb_log_level: Option<c_int>) -> Result<Self> {
         debug!("start \'new\' ftdi context creation, USB log level = {}...", usb_log_level.unwrap_or_default());
+        if usb_log_level.is_some() && (usb_log_level.unwrap() < 0 || usb_log_level.unwrap() > 4) {
+            let error = FtdiContextError::UsbCommonError {
+                code: -1,
+                message: "'usb log level' incorrect value, correct value is in range = [0...4] inclusively".to_string(),
+                backtrace: GenerateBacktrace::generate()
+            };
+            error!("{}", error);
+            return Err(error);
+        } else {
+
+        }
         let mut context_uninit: MaybeUninit::<*mut ffi::libusb_context> = MaybeUninit::uninit();
         let context: *mut ffi::libusb_context;
         debug!("ftdi context before init...");
@@ -263,7 +274,6 @@ impl ftdi_context {
                 if usb_log_level.is_some() {
                     unsafe {
                         ffi::libusb_set_debug(context, usb_log_level.unwrap());
-                        // ffi::libusb_set_log_cb(context, call_libusb_log_cb, usb_log_level.unwrap())
                     }
                 }
             },
@@ -305,7 +315,7 @@ impl ftdi_context {
         )
     }
 
-        pub fn ftdi_set_interface(&mut self, interface_type: ftdi_interface) {
+    pub fn ftdi_set_interface(&mut self, interface_type: ftdi_interface) {
         debug!("set interface type \'{:?}\' to ftdi context", interface_type);
         match interface_type {
             ftdi_interface::INTERFACE_ANY | ftdi_interface::INTERFACE_A => {
@@ -538,7 +548,7 @@ impl ftdi_context {
                 },
                 sys_error => {
                     let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
-                    error!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' {}", error_enum);
+                    warn!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' {}", error_enum);
                     detach_errno = sys_error
                 }
             }
@@ -549,7 +559,7 @@ impl ftdi_context {
                 },
                 sys_error => {
                     let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
-                    error!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' {}", error_enum);
+                    warn!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' {}", error_enum);
                     detach_errno = sys_error
                 }
             }
@@ -1333,36 +1343,40 @@ impl ftdi_context {
             warn!("Data buffer is empty, nothing write to usb [{}]", full_buf_size);
             return Ok(full_buf_size);
         }
-        let mut buf_data_ptr: *mut c_uchar;
-        let actualy_written_data_length: u32 = 0;
-        let actual_written_data_length_ptr: *mut c_int = actualy_written_data_length as *mut c_int;
+        let mut buf_data_ptr;
+        let mut transferred_uninit = MaybeUninit::<c_int>::zeroed();
+        let mut transferred: c_int;
+
         while offset < size_to_write {
             let mut write_size = self.writebuffer_chunksize;
             if offset + write_size > size_to_write as u32 {
-                let write_size = size_to_write - offset;
-                buf_data_ptr = buffer[(offset as usize)..(write_size as usize)].as_mut_ptr() as *mut c_uchar;
+                write_size = size_to_write - offset;
+                buf_data_ptr = buffer[(offset as usize)..(write_size as usize)].as_ptr() as *mut c_uchar;
             } else {
                 write_size = size_to_write;
-                buf_data_ptr = buffer[0..].as_mut_ptr() as *mut c_uchar;
+                buf_data_ptr = buffer[0..].as_ptr() as *mut c_uchar;
             }
-            if unsafe {
+            let transfer_result = unsafe {
                 ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),
                                           self.in_ep as c_uchar,
                                           buf_data_ptr,
                                           write_size as c_int,
-                                          actual_written_data_length_ptr,
-                                          self.usb_write_timeout as c_uint )} < 0 {
-                let error = FtdiContextError::UsbCommandError { code: -1,
+                                          transferred_uninit.as_mut_ptr(),
+                                          self.usb_write_timeout as c_uint )
+            };
+            if transfer_result < 0 {
+                let error = FtdiContextError::UsbCommandError { code: transfer_result,
                     message: "usb bulk write failed".to_string(),
                     backtrace: GenerateBacktrace::generate()
                 };
-                error!("actual_written_data_length = [{:?}], {}", actual_written_data_length_ptr, error);
+                error!("actual_written_data_length = [{:?}], {}", 0, error);
                 return Err(error);
             }
-            offset += actualy_written_data_length;
+            transferred = unsafe { transferred_uninit.assume_init() };
+            offset += transferred as u32;
         }
-        debug!("'ftdi_write_data' - OK");
-        Ok(full_buf_size)
+        debug!("'ftdi_write_data' - OK, transferred = {}", offset);
+        Ok(offset as usize)
     }
 
     pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) /*-> Result<()> */{
