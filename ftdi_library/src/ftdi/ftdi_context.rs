@@ -37,19 +37,22 @@ extern "C" fn call_libusb_log_cb(_context: *mut ffi::libusb_context, log_level: 
     println!("USB_CallBack - {:?} : {:?}", log_level, log_message);
 }*/
 
-#[derive(Debug, /*PartialEq, */Snafu)]
+#[derive(Debug, Snafu)]
 pub enum FtdiContextError {
-    #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
+    None,
+    #[snafu(display("USB SYS INIT: error code: \'{}\', message: \'{}\'\n{}\nsource error={}", code, message, backtrace, source))]
     UsbInit {
         code: i32,
         message: String,
         backtrace: Backtrace,
+        source: Box<FtdiContextError>,
     },
-    #[snafu(display("USB SYS COMMAND: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
+    #[snafu(display("USB SYS COMMAND: error code: \'{}\', message: \'{}\'\n{}\nsource error={}", code, message, backtrace, source))]
     UsbCommandError {
         code: i32,
         message: String,
         backtrace: Backtrace,
+        source: Box<FtdiContextError>,
     },
     #[snafu(display("COMMON ERROR: error code: \'{}\', message: \'{}\'\n{}", code, message, backtrace))]
     UsbCommonError {
@@ -62,10 +65,12 @@ impl From<crate::ftdi::core::FtdiError> for FtdiContextError {
     fn from(error: crate::ftdi::core::FtdiError) -> Self {
         match error {
             FtdiError::UsbInit {code, message, backtrace} => {
-                FtdiContextError::UsbInit {code: code, message: message, backtrace: backtrace}
+                FtdiContextError::UsbInit {code: code, message: message, backtrace: backtrace,
+                    source: Box::new(FtdiContextError::None)}
             },
             FtdiError::UsbCommandError {code, message, backtrace} => {
-                FtdiContextError::UsbCommandError {code: code, message: message, backtrace: backtrace}
+                FtdiContextError::UsbCommandError {code: code, message: message, backtrace: backtrace,
+                    source: Box::new(FtdiContextError::None)}
             },
             FtdiError::UsbCommonError {code, message, backtrace} => {
                 FtdiContextError::UsbCommonError {code: code, message: message, backtrace: backtrace}
@@ -76,11 +81,11 @@ impl From<crate::ftdi::core::FtdiError> for FtdiContextError {
 impl PartialEq for FtdiContextError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (FtdiContextError::UsbInit {code, message, backtrace: _trace },
-                FtdiContextError::UsbInit {code: code2, message: message2, backtrace: _trace2})
+            (FtdiContextError::UsbInit {code, message, backtrace: _trace, source: _source },
+                FtdiContextError::UsbInit {code: code2, message: message2, backtrace: _trace2, source: _source2})
                     => code == code2 && message.eq(&message2.as_str()),
-            (FtdiContextError::UsbCommandError {code, message, backtrace: _trace },
-                FtdiContextError::UsbCommandError {code: code2, message: message2, backtrace: _trace2})
+            (FtdiContextError::UsbCommandError {code, message, backtrace: _trace , source: _source},
+                FtdiContextError::UsbCommandError {code: code2, message: message2, backtrace: _trace2, source: _source2})
                     => code == code2 && message.eq(&message2.as_str()),
             (FtdiContextError::UsbCommonError {code, message, backtrace: _trace },
                 FtdiContextError::UsbCommonError {code: code2, message: message2, backtrace: _trace2})
@@ -168,8 +173,8 @@ impl Debug for ftdi_context {
 impl Default for ftdi_context {
     fn default() -> Self {
         ftdi_context {
-            usb_ctx: None,
-            usb_dev: None, // usb device to be assigned if it's found
+            usb_ctx: Option::None,
+            usb_dev: Option::None, // usb device to be assigned if it's found
             usb_read_timeout: 5000,
             usb_write_timeout: 5000,
             r#type: ftdi_chip_type::TYPE_BM,
@@ -200,28 +205,58 @@ impl ftdi_context {
     const C_CLK: i32 =  48000000;
 
     /// Helper function to convert USB system error code into FtdiContextError enum
-    pub fn get_usb_sys_init_error(err: c_int) -> FtdiContextError {
+    pub fn get_usb_sys_native_error(err: c_int) -> FtdiContextError {
         match err {
-            ffi::LIBUSB_SUCCESS             => FtdiContextError::UsbInit{code: 0, message: "success".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_IO            => FtdiContextError::UsbInit{code: -1, message: "I/O error".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_INVALID_PARAM => FtdiContextError::UsbInit{code: -2, message: "invalid parameter".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_ACCESS        => FtdiContextError::UsbInit{code: -3, message: "access denied".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_NO_DEVICE     => FtdiContextError::UsbInit{code: -4, message: "no such device".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_NOT_FOUND     => FtdiContextError::UsbInit{code: -5, message: "entity not found".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_BUSY          => FtdiContextError::UsbInit{code: -6, message: "resource busy".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_TIMEOUT       => FtdiContextError::UsbInit{code: -7, message: "operation timed out".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_OVERFLOW      => FtdiContextError::UsbInit{code: -8, message: "overflow error".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_PIPE          => FtdiContextError::UsbInit{code: -9, message: "pipe error".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_INTERRUPTED   => FtdiContextError::UsbInit{code: -10, message: "system call interrupted".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_NO_MEM        => FtdiContextError::UsbInit{code: -11, message: "insufficient memory".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_NOT_SUPPORTED => FtdiContextError::UsbInit{code: -12, message: "operation not supported".to_string(), backtrace: GenerateBacktrace::generate()},
-            ffi::LIBUSB_ERROR_OTHER         => FtdiContextError::UsbInit{code: -99, message: "other error".to_string(), backtrace: GenerateBacktrace::generate()},
-            _                               => FtdiContextError::UsbInit{code: -1000, message: "unknown error".to_string(), backtrace: GenerateBacktrace::generate()},
+            ffi::LIBUSB_SUCCESS             => FtdiContextError::UsbInit{
+                code: 0, message: "success".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_IO            => FtdiContextError::UsbInit{
+                code: -1, message: "I/O error".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_INVALID_PARAM => FtdiContextError::UsbInit{
+                code: -2, message: "invalid parameter".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_ACCESS        => FtdiContextError::UsbInit{
+                code: -3, message: "access denied".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_NO_DEVICE     => FtdiContextError::UsbInit{
+                code: -4, message: "no such device".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_NOT_FOUND     => FtdiContextError::UsbInit{
+                code: -5, message: "entity not found".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_BUSY          => FtdiContextError::UsbInit{
+                code: -6, message: "resource busy".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_TIMEOUT       => FtdiContextError::UsbInit{
+                code: -7, message: "operation timed out".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_OVERFLOW      => FtdiContextError::UsbInit{
+                code: -8, message: "overflow error".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_PIPE          => FtdiContextError::UsbInit{
+                code: -9, message: "pipe error".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_INTERRUPTED   => FtdiContextError::UsbInit{
+                code: -10, message: "system call interrupted".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_NO_MEM        => FtdiContextError::UsbInit{
+                code: -11, message: "insufficient memory".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_NOT_SUPPORTED => FtdiContextError::UsbInit{
+                code: -12, message: "operation not supported".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            ffi::LIBUSB_ERROR_OTHER         => FtdiContextError::UsbInit{
+                code: -99, message: "other error".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
+            _                               => FtdiContextError::UsbInit{
+                code: -1000, message: "unknown error".to_string(), backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)},
         }
     }
 
     pub fn new() -> Result<Self> {
-        ftdi_context::new_with_log_level(None)
+        ftdi_context::new_with_log_level(Option::None)
     }
 
     /// Allocate and initialize a new ftdi_context.
@@ -278,8 +313,12 @@ impl ftdi_context {
                 }
             },
             sys_error => {
-                // Err(ftdi_context::get_error(e))
-                let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
+                let error_enum = FtdiContextError::UsbInit {
+                    code: -1,
+                    message: "ftdi context initialization error".to_string(),
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(sys_error))
+                };
                 error!("{}", error_enum);
                 return Err(error_enum);
             }
@@ -291,7 +330,7 @@ impl ftdi_context {
         Ok(
             ftdi_context {
                 usb_ctx: Some(context),
-                usb_dev: None, // usb device to be assigned if it's found
+                usb_dev: Option::None, // usb device to be assigned if it's found
                 usb_read_timeout: 5000,
                 usb_write_timeout: 5000,
                 r#type: ftdi_chip_type::TYPE_BM,
@@ -374,7 +413,10 @@ impl ftdi_context {
 
     fn check_usb_context_initialized(&self) -> Result<()> {
         if self.usb_ctx.is_none() {
-            let error = FtdiContextError::UsbInit { code: -8, message: "ftdi context is not initialized previously".to_string(), backtrace: GenerateBacktrace::generate() };
+            let error = FtdiContextError::UsbInit {
+                code: -8, message: "ftdi context is not initialized previously".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None) };
             error!("{}", error);
             return Err(error);
         }
@@ -382,42 +424,30 @@ impl ftdi_context {
     }
 
     fn check_usb_device(&self) -> Result<()> {
-        if self.usb_dev == None {
-            let error = FtdiContextError::UsbInit { code: -2, message: "USB device unavailable".to_string(), backtrace: GenerateBacktrace::generate() };
+        if self.usb_dev == Option::None {
+            let error = FtdiContextError::UsbInit {
+                code: -2, message: "USB device unavailable".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None) };
             error!("{}", error);
             return Err(error);
         }
         Ok(())
     }
 
+    /// Internal usb device closing. Force device closing before Drop is called.
     fn ftdi_usb_close_internal(&mut self) {
-        if self.usb_dev.is_some() {
-            unsafe { ffi::libusb_close(self.usb_dev.unwrap()) };
-            self.usb_dev = None;
-            // if  self.eeprom {
-            self.eeprom.initialized_for_connected_device = false;
-            // }
-        } else {
-            debug!("Nothing to close...");
+        match self.usb_dev {
+            Some(usb_device) => {
+                debug!("closing ftdi \'usb device handler\' context...");
+                unsafe {ffi::libusb_close(usb_device);}
+                // unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
+                self.usb_dev = Option::None;
+            }
+            Option::None => {
+                debug!("NO ftdi \'usb device handler\' to close...");
+            }
         }
-    }
-
-    // fn ftdi_usb_close_internal_handle(&mut self, device_handle: *mut ffi::libusb_device_handle) {
-    // fn ftdi_usb_close_internal_handle(&mut self, device_handle: &*mut ffi::libusb_device) {
-    fn ftdi_usb_close_internal_handle(&mut self) {
-        if self.usb_dev.is_some() {
-            unsafe { ffi::libusb_close(self.usb_dev.unwrap()) };
-            self.usb_dev = None;
-            // if  self.eeprom {
-            self.eeprom.initialized_for_connected_device = false;
-            // }
-        } else {
-            debug!("Nothing to close...");
-        }
-        // if !device_handle.is_null() {
-        //     unsafe { ffi::libusb_close(device_handle) };
-        //     // device_handle = ptr::null_mut();
-        // }
     }
 
     /// Return device ID strings from the usb device.
@@ -430,12 +460,15 @@ impl ftdi_context {
     pub fn ftdi_usb_get_strings(&mut self, device: *const *mut ffi::libusb_device)
                                 -> Result<(Option<String>, Option<String>, Option<String>)> {
         debug!("start \'ftdi_usb_get_strings\' ...");
-        if self.usb_dev == None {
+        if self.usb_dev == Option::None {
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-            if unsafe { ffi::libusb_open(*device, &mut handle) } < 0 {
+            let open_device_error = unsafe { ffi::libusb_open(*device, &mut handle) };
+            if open_device_error < 0 {
                 warn!("Couldn't open device [{:?}], some information will be missing", device.type_id());
-                let error = FtdiContextError::UsbInit { code: -4, message: "libusb_open() failed".to_string(),
-                    backtrace: GenerateBacktrace::generate()
+                let error = FtdiContextError::UsbInit {
+                    code: -4, message: "libusb_open() failed".to_string(),
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(open_device_error))
                 };
                 error!("{}", error);
                 return Err(error);
@@ -456,16 +489,19 @@ impl ftdi_context {
         debug!("start \'ftdi_usb_get_strings\' ...");
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
 
-        let read_descriptor_result = unsafe {
+        let get_descriptor_result = unsafe {
             ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr())
         };
-        let has_descriptor = match read_descriptor_result {
+        let has_descriptor = match get_descriptor_result {
             0 => {
                 true
             },
             _err => {
-                error!("{}", FtdiContextError::UsbInit{code: -13, message: "libusb_get_device_descriptor() failed".to_string(),
-                    backtrace: GenerateBacktrace::generate()});
+                error!("{}", FtdiContextError::UsbInit{
+                    code: -13, message: "libusb_get_device_descriptor() failed".to_string(),
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(get_descriptor_result))
+                });
                 false
             },
         };
@@ -486,7 +522,7 @@ impl ftdi_context {
             debug!("No usb description fetched for device");
         }
         debug!("No data is fetched from device");
-        Ok( (None, None, None) )
+        Ok( (Option::None, Option::None, Option::None) )
     }
 
     /// Opens a ftdi device given by an usb_device.
@@ -498,10 +534,13 @@ impl ftdi_context {
         self.check_usb_context_initialized()?;
 
         let mut device_handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-        if unsafe { ffi::libusb_open(*device, &mut device_handle) } < 0 {
+        let usb_open_error = unsafe { ffi::libusb_open(*device, &mut device_handle) };
+        if usb_open_error < 0 {
             warn!("Couldn't open device [{:?}], some information will be missing", device.type_id());
-            let error = FtdiContextError::UsbInit { code: -4, message: "libusb_open() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+            let error = FtdiContextError::UsbInit {
+                code: -4, message: "libusb_open() failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(usb_open_error))
             };
             error!("{}", error);
             return Err(error);
@@ -510,9 +549,11 @@ impl ftdi_context {
         device_handle = ptr::null_mut(); // nullify after storing
 
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) } < 0 {
+        let get_descriptor_result = unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) };
+        if get_descriptor_result < 0 {
             let error = FtdiContextError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(get_descriptor_result))
             };
             error!("{}", error);
             return Err(error);
@@ -521,9 +562,12 @@ impl ftdi_context {
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
         let mut configuration_uninit: MaybeUninit::<*const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) } < 0 {
-            let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let get_config_descriptor_result = unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) };
+        if get_config_descriptor_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(get_config_descriptor_result))
             };
             error!("{}", error);
             return Err(error);
@@ -547,7 +591,7 @@ impl ftdi_context {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' - OK!")
                 },
                 sys_error => {
-                    let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
+                    let error_enum = ftdi_context::get_usb_sys_native_error(sys_error);
                     warn!("libusb_detach_kernel_driver for \'AUTO_DETACH_SIO_MODULE\' {}", error_enum);
                     detach_errno = sys_error
                 }
@@ -558,7 +602,7 @@ impl ftdi_context {
                     debug!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' - OK!")
                 },
                 sys_error => {
-                    let error_enum = ftdi_context::get_usb_sys_init_error(sys_error);
+                    let error_enum = ftdi_context::get_usb_sys_native_error(sys_error);
                     warn!("libusb_detach_kernel_driver for \'AUTO_DETACH_REATACH_SIO_MODULE\' {}", error_enum);
                     detach_errno = sys_error
                 }
@@ -566,26 +610,33 @@ impl ftdi_context {
         }
         let mut cfg: c_int = 0;
         let p_mut_cfg: *mut c_int = &mut cfg;
-        if unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), p_mut_cfg) } < 0 {
-            let error = FtdiContextError::UsbInit { code: -12, message: "libusb_get_configuration() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let get_config_result = unsafe { ffi::libusb_get_configuration (self.usb_dev.unwrap(), p_mut_cfg) };
+        if get_config_result < 0 {
+            let error = FtdiContextError::UsbInit {
+                code: -12, message: "libusb_get_configuration() failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(get_config_result))
             };
             error!("{}", error);
             return Err(error);
         }
         if descriptor.bNumConfigurations > 0 && (cfg != cfg0) {
-            if unsafe { ffi::libusb_set_configuration(self.usb_dev.unwrap(), cfg0) }  < 0 {
+            let set_config_result = unsafe { ffi::libusb_set_configuration(self.usb_dev.unwrap(), cfg0) };
+            if set_config_result < 0 {
                 self.ftdi_usb_close_internal();
                 if detach_errno == EPERM {
-                    let error = FtdiContextError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string(),
-                        backtrace: GenerateBacktrace::generate()
+                    let error = FtdiContextError::UsbCommandError {
+                        code: -8, message: "inappropriate permissions on device!".to_string(),
+                        backtrace: GenerateBacktrace::generate(),
+                        source: Box::new(ftdi_context::get_usb_sys_native_error(set_config_result))
                     };
                     error!("{}", error);
                     return Err(error);
                 } else {
                     let error = FtdiContextError::UsbCommandError { code: -8,
                         message: "unable to set usb configuration. Make sure the default FTDI driver is not in use".to_string(),
-                        backtrace: GenerateBacktrace::generate()
+                        backtrace: GenerateBacktrace::generate(),
+                        source: Box::new(ftdi_context::get_usb_sys_native_error(set_config_result))
                     };
                     error!("{}", error);
                     return Err(error);
@@ -593,31 +644,37 @@ impl ftdi_context {
             }
         }
 
-        if unsafe { ffi::libusb_claim_interface(self.usb_dev.unwrap(),self.interface as c_int) } < 0 {
+        let claim_interface_result = unsafe { ffi::libusb_claim_interface(self.usb_dev.unwrap(),self.interface as c_int) };
+        if claim_interface_result < 0 {
             self.ftdi_usb_close_internal();
             if detach_errno == EPERM {
-                let error = FtdiContextError::UsbCommandError { code: -8, message: "inappropriate permissions on device!".to_string(),
-                    backtrace: GenerateBacktrace::generate()
+                let error = FtdiContextError::UsbCommandError {
+                    code: -8, message: "inappropriate permissions on device!".to_string(),
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(claim_interface_result))
                 };
                 error!("{}", error);
                 return Err(error);
             } else {
                 let error = FtdiContextError::UsbCommandError { code: -5,
                     message: "unable to claim usb device. Make sure the default FTDI driver is not in use".to_string(),
-                    backtrace: GenerateBacktrace::generate()
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(claim_interface_result))
                 };
                 error!("{}", error);
                 return Err(error);
             }
         }
 
-        match self.ftdi_usb_reset() {
+        let reset_result = self.ftdi_usb_reset();
+        match reset_result {
             Ok( () ) => { /* nothing to do */ },
             Err(error) => {
                 self.ftdi_usb_close_internal();
                 let error = FtdiContextError::UsbCommandError { code: -6,
                     message: "ftdi_usb_reset failed".to_string(),
-                    backtrace: GenerateBacktrace::generate()
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(FtdiContextError::None)
                 };
                 error!("{}", error);
                 return Err(error);
@@ -643,8 +700,10 @@ impl ftdi_context {
         } else if descriptor.bcdDevice == 0x1000 {
             self.r#type = ftdi_chip_type::TYPE_230X;
         } else {
-            let error = FtdiContextError::UsbInit { code: -8, message: "Is it new 'ftdi_chip_type' ?? or type is not guessed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+            let error = FtdiContextError::UsbInit {
+                code: -8, message: "Is it new 'ftdi_chip_type' ?? or type is not guessed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(FtdiContextError::None)
             };
             error!("{}", error);
             return Err(error);
@@ -662,7 +721,7 @@ impl ftdi_context {
     /// product is Product ID value
     /// return same as ftdi_usb_open_desc()
     pub fn ftdi_usb_open(&mut self, vendor: u16, product: u16) -> Result<&Self> {
-        ftdi_context::ftdi_usb_open_desc(self, vendor, product, None, None)
+        ftdi_context::ftdi_usb_open_desc(self, vendor, product, Option::None, Option::None)
     }
 
     /// Opens the first device with a given, vendor id, product id,
@@ -702,16 +761,18 @@ impl ftdi_context {
             let speed = unsafe { ffi::libusb_get_device_speed(*dev) };
             let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
             let mut handle: *mut ffi::libusb_device_handle = ptr::null_mut();
-            // let mut descriptor: ffi::libusb_device_descriptor;
 
-            let has_descriptor = match unsafe { ffi::libusb_get_device_descriptor(*dev, descriptor_uninit.as_mut_ptr()) } {
+            let get_descriptor_result = unsafe { ffi::libusb_get_device_descriptor(*dev, descriptor_uninit.as_mut_ptr()) };
+            let has_descriptor = match get_descriptor_result {
                 0 => {
                     // descriptor = unsafe { descriptor_uninit.assume_init() };
                     true
                 },
                 _err => {
-                    error!("{}", FtdiContextError::UsbInit{code: -13, message: "libusb_get_device_descriptor() failed".to_string(),
-                        backtrace: GenerateBacktrace::generate()
+                    error!("{}", FtdiContextError::UsbInit{
+                        code: -13, message: "libusb_get_device_descriptor() failed".to_string(),
+                        backtrace: GenerateBacktrace::generate(),
+                        source: Box::new(ftdi_context::get_usb_sys_native_error(get_descriptor_result))
                     });
                     false
                 },
@@ -752,7 +813,7 @@ impl ftdi_context {
                         }
                     }
                     // self.ftdi_usb_close_internal_handle(handle); // close USB device handle
-                    self.ftdi_usb_close_internal_handle(); // close internally stored USB device handle
+                    self.ftdi_usb_close_internal(); // close internally stored USB device handle
                     if index > 0 {
                         index -= index;
                     }
@@ -859,13 +920,13 @@ impl ftdi_context {
                 2 => {
                     self.ftdi_usb_open_desc_index(device_name_parts[0],
                                                   device_name_parts[1],
-                                                  None, None,
+                                                  Option::None, Option::None,
                                                   0)?;
                 }
                 3 => {
                     self.ftdi_usb_open_desc_index(device_name_parts[0],
                                                   device_name_parts[1],
-                                                  None, None,
+                                                  Option::None, Option::None,
                                                   device_name_parts[2] as usize)?;
                 }
                 _ => { /* all is fine */ }
@@ -887,15 +948,20 @@ impl ftdi_context {
         debug!("start 'ftdi_usb_reset'...");
         self.check_usb_device()?;
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_RESET_REQUEST,
-                                                SIO_RESET_SIO as u16,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "FTDI reset failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_RESET_REQUEST,
+                                         SIO_RESET_SIO as u16,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "FTDI reset failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -913,15 +979,19 @@ impl ftdi_context {
         debug!("start 'ftdi_tciflush'...");
         self.check_usb_device()?;
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_RESET_REQUEST,
-                                                SIO_TCIFLUSH as u16,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "FTDI purge of RX buffer failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_RESET_REQUEST,
+                                         SIO_TCIFLUSH as u16,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "FTDI purge of RX buffer failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -939,15 +1009,19 @@ impl ftdi_context {
         debug!("start 'ftdi_usb_purge_rx_buffer'...");
         self.check_usb_device()?;
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_RESET_REQUEST,
-                                                SIO_RESET_PURGE_RX as u16,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "FTDI purge of RX buffer failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_RESET_REQUEST,
+                                         SIO_RESET_PURGE_RX as u16,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "FTDI purge of RX buffer failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -965,15 +1039,20 @@ impl ftdi_context {
         debug!("start 'ftdi_tcoflush'...");
         self.check_usb_device()?;
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_RESET_REQUEST,
-                                                SIO_TCOFLUSH as u16,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "FTDI purge of RX buffer failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_RESET_REQUEST,
+                                         SIO_TCOFLUSH as u16,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "FTDI purge of RX buffer failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -991,15 +1070,19 @@ impl ftdi_context {
         debug!("start 'ftdi_usb_purge_tx_buffer'...");
         self.check_usb_device()?;
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_RESET_REQUEST,
-                                                SIO_RESET_PURGE_TX as u16,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "FTDI purge of TX buffer failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_RESET_REQUEST,
+                                         SIO_RESET_PURGE_TX as u16,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "FTDI purge of TX buffer failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -1250,15 +1333,19 @@ impl ftdi_context {
             return Err(error);
         }
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_SET_BAUDRATE_REQUEST,
-                                                value as u16,
-                                                index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -2, message: "Setting new baudrate failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_SET_BAUDRATE_REQUEST,
+                                         value as u16,
+                                         index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -2, message: "Setting new baudrate failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -1314,15 +1401,19 @@ impl ftdi_context {
         }
 
         let null_data_ptr: *mut c_uchar = ptr::null_mut::<c_uchar>();
-        if unsafe {ffi::libusb_control_transfer(self.usb_dev.unwrap(),
-                                                FTDI_DEVICE_OUT_REQTYPE,
-                                                SIO_SET_BAUDRATE_REQUEST,
-                                                value,
-                                                self.index as u16, null_data_ptr,
-                                                0,
-                                                self.usb_write_timeout as c_uint)} < 0 {
-            let error = FtdiContextError::UsbCommandError {code: -1, message: "Setting new line property failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let control_transfer_result = unsafe {
+            ffi::libusb_control_transfer(self.usb_dev.unwrap(),
+                                         FTDI_DEVICE_OUT_REQTYPE,
+                                         SIO_SET_BAUDRATE_REQUEST,
+                                         value,
+                                         self.index as u16, null_data_ptr,
+                                         0,
+                                         self.usb_write_timeout as c_uint)};
+        if control_transfer_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -1, message: "Setting new line property failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(control_transfer_result))
             };
             error!("{}", error);
             return Err(error);
@@ -1367,7 +1458,8 @@ impl ftdi_context {
             if transfer_result < 0 {
                 let error = FtdiContextError::UsbCommandError { code: transfer_result,
                     message: "usb bulk write failed".to_string(),
-                    backtrace: GenerateBacktrace::generate()
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(transfer_result))
                 };
                 error!("actual_written_data_length = [{:?}], {}", 0, error);
                 return Err(error);
@@ -1471,10 +1563,11 @@ impl ftdi_context {
 
                         let add_result = ftdi.readbuffer_offset.checked_add(part_size as u32);
                         match add_result {
-                            None => {
+                            Option::None => {
                                 let error = FtdiContextError::UsbCommandError { code: -111,
                                     message: "overflow in read data code, checked_add".to_string(),
-                                    backtrace: GenerateBacktrace::generate()
+                                    backtrace: GenerateBacktrace::generate(),
+                                    source: Box::new(FtdiContextError::None)
                                 };
                                 error!("{}", error);
                                 // return Err(error);
@@ -1484,10 +1577,12 @@ impl ftdi_context {
                         }
                         let decreased_lenght_to_read = actual_length.checked_sub(part_size);
                         match decreased_lenght_to_read {
-                            None => {
+                            Option::None => {
                                 let error = FtdiContextError::UsbCommandError { code: -111,
                                     message: "underflow in read data code, checked_sub".to_string(),
-                                    backtrace: GenerateBacktrace::generate()
+                                    backtrace: GenerateBacktrace::generate(),
+                                    source: Box::new(ftdi_context::get_usb_sys_native_error(
+                                        decreased_lenght_to_read.unwrap_or_default()))
                                 };
                                 error!("{}", error);
                                 // return Err(error);
@@ -1776,7 +1871,7 @@ impl ftdi_context {
             debug!("parse_result - 0x = {:?}", parse_result);
             match parse_result {
                 Ok(value) => return Some(value),
-                Err(_) => return None,
+                Err(_) => return Option::None,
             }
         } else if one_item.starts_with("0o") { // Octet value
             let without_prefix = one_item.trim_start_matches("0o"); // "0o52"
@@ -1785,7 +1880,7 @@ impl ftdi_context {
             debug!("parse_result - 0o = {:?}", parse_result);
             match parse_result {
                 Ok(value) => return Some(value),
-                Err(_) => return None,
+                Err(_) => return Option::None,
             }
         } else { // DECIMAL value
             let without_prefix = one_item; // "0394"
@@ -1794,7 +1889,7 @@ impl ftdi_context {
             debug!("parse_result - 0 = {:?}", parse_result);
             match parse_result {
                 Ok(value) => return Some(value),
-                Err(_) => return None,
+                Err(_) => return Option::None,
             }
         }
     }
@@ -1858,8 +1953,10 @@ impl ftdi_context {
         } else {
             debug!("control_transfer_result_1 returned result = {}", control_transfer_result_1);
         }
-        let error = FtdiContextError::UsbCommandError { code: -1, message: "read of FTDIChip-ID failed".to_string(),
-            backtrace: GenerateBacktrace::generate()
+        let error = FtdiContextError::UsbCommandError {
+            code: -1, message: "read of FTDIChip-ID failed".to_string(),
+            backtrace: GenerateBacktrace::generate(),
+            source: Box::new(FtdiContextError::None)
         };
         Err(error)
     }
@@ -1884,9 +1981,12 @@ impl ftdi_context {
         }
 
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) } < 0 {
-            let error = FtdiContextError::UsbCommandError { code: -9, message: "libusb_get_device_descriptor() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let get_descriptor_result = unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) };
+        if get_descriptor_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -9, message: "libusb_get_device_descriptor() failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(get_descriptor_result))
             };
             error!("{}", error);
             return Ok(packet_size);
@@ -1894,9 +1994,12 @@ impl ftdi_context {
         let descriptor: ffi::libusb_device_descriptor = unsafe { descriptor_uninit.assume_init() };
 
         let mut configuration_uninit: MaybeUninit::<*const ffi::libusb_config_descriptor> = MaybeUninit::uninit();
-        if unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) } < 0 {
-            let error = FtdiContextError::UsbCommandError { code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
-                backtrace: GenerateBacktrace::generate()
+        let get_config_descriptor_result = unsafe { ffi::libusb_get_config_descriptor(*device, 0, configuration_uninit.as_mut_ptr()) };
+        if get_config_descriptor_result < 0 {
+            let error = FtdiContextError::UsbCommandError {
+                code: -10, message: "libusb_get_config_descriptor() failed".to_string(),
+                backtrace: GenerateBacktrace::generate(),
+                source: Box::new(ftdi_context::get_usb_sys_native_error(get_config_descriptor_result))
             };
             error!("{}", error);
             return Ok(packet_size);
@@ -1924,18 +2027,8 @@ impl ftdi_context {
 impl Drop for ftdi_context {
     fn drop(&mut self) {
         debug!("closing ftdi context...");
-        match self.usb_dev {
-            Some(usb_device) => {
-                debug!("closing ftdi \'usb device handler\' context...");
-                unsafe {ffi::libusb_close(usb_device);}
-                // unsafe {ffi::libusb_release_interface(usb_device, self.interface as c_int); }
-                self.usb_dev = None;
-            }
-            None => {
-                debug!("NO ftdi \'usb device handler\' to close...");
-            }
-        }
-        if self.usb_ctx != None {
+        self.ftdi_usb_close_internal(); // try to close device handle first
+        if self.usb_ctx.is_some() { // close usb context
             debug!("before usb context exit...");
             unsafe { ffi::libusb_exit(self.usb_ctx.unwrap()) };
         }
