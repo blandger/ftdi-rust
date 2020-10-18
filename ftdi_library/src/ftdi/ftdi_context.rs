@@ -7,6 +7,7 @@ use std::{
     any::Any,
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
+    time::Duration,
     io,
     mem::{MaybeUninit, transmute},
     os::raw::{c_uint, c_ushort},
@@ -1471,7 +1472,7 @@ impl ftdi_context {
         Ok(offset as usize)
     }
 
-    pub fn ftdi_read_data_callback(transfer: *mut ffi::libusb_transfer) /*-> Result<()> */{
+    pub fn ftdi_read_data_cb(transfer: *mut ffi::libusb_transfer) /*-> Result<()> */{
         // cast user data to our type
         let tc: &mut ftdi_transfer_control = unsafe { &mut *(transfer as *mut ftdi_transfer_control) };
         // try to get lock guard on mutex
@@ -1765,6 +1766,46 @@ impl ftdi_context {
         }
     }
 */
+
+    pub unsafe fn ftdi_read_data_submit<F>(self, destination_buffer: &mut Vec<u8>, mut ftdi_read_data_callback: F) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_transfer_data_done(tc: &ftdi_transfer_control) -> Result<usize> {
+        unimplemented!()
+    }
+
+    pub fn ftdi_transfer_data_cancel(tc: &ftdi_transfer_control, to: Duration) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_write_data_set_chunksize(self, chunksize: i32) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_write_data_get_chunksize(self, chunksize: i32) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_read_data(self, buffer: &Vec<u8>, size_to_read: usize) -> Result<usize> {
+        unimplemented!()
+    }
+
+    pub fn ftdi_read_data_set_chunksize(self, chunksize: i32) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_read_data_get_chunksize(self, chunksize: i32) {
+        unimplemented!()
+    }
+
+    pub fn ftdi_set_bitmode(self/*, unsigned char bitmask, unsigned char mode*/) -> Result<usize> {
+        unimplemented!()
+    }
+
+    pub fn ftdi_disable_bitbang(&mut self) -> Result<()> {
+        unimplemented!()
+    }
 
     /// Parse vendor/product string supplied in specific format
     /// Return Vector with appropriate numbers OR error
