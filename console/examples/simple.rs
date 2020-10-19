@@ -5,7 +5,7 @@ use log::{info};
 use log4rs;
 use ftdi_library::ftdi::constants::ftdi_chip_type;
 use ftdi_library::ftdi::ftdi_context::FtdiContextError;
-use libc::{c_int};
+// use libc::{c_int};
 
 #[cfg(target_os = "linux")]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "./log4rs.yaml"; // string path to log config

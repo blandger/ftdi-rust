@@ -14,7 +14,7 @@ use std::{
 use clap::{value_t, Arg, App};
 use ftdi_library::ftdi::constants::{ftdi_interface, ftdi_stopbits_type, ftdi_bits_type, ftdi_parity_type};
 use ftdi_library::ftdi::core::FtdiError;
-use snafu::{Backtrace, GenerateBacktrace};
+use snafu::{GenerateBacktrace};
 
 #[cfg(target_os = "linux")]
 const PATH_TO_YAML_LOG_CONFIG:&'static str = "log4rs.yaml"; // string path to log config
@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buffer = (0..1024).map(|_| pattern_to_write).collect();
     }
 
-    let mut ftdi = ftdi_context::new_with_log_level(None)?;
+    let mut ftdi = ftdi_context::new_with_log_level(Some(4))?;
     info!("ftdi context in created - OK");
 
     if vid != 0 && pid != 0 && interface != ftdi_interface::INTERFACE_ANY {
@@ -142,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let write_result = ftdi.ftdi_write_data(&mut buffer, size_to_write as u32);
             match write_result {
                 Err(err) => {
-                    error!("Write {}", err);
+                    error!("Write {:?}", err);
                     write_read_result = 0;
                 },
                 Ok(written_number) => {
@@ -150,21 +150,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     write_read_result = written_number;
                 },
             }
-            debug!("written bytes = {}", write_read_result);
         } else {
             debug!("read bytes = {}", write_read_result);
-            // read_result = ftdi.ftdi_read_data(&buffer/*, sizeof(buf)*/)?;
-            // match read_result {
-            //     Err(err) => {
-            //          error!("{}", err);
-            //          write_read_result = 0;
-            //     },
-            //     Ok(read_number) => {
-            //          debug!("read bytes = {}", read_number);
-            //          write_read_result = read_number;
-            //     },
-            // }
-            // println!("read result = {} bytes\n", f);
+            let size_to_read = buffer.len();
+            let read_result = ftdi.ftdi_read_data(&mut buffer, size_to_read);
+            match read_result {
+                Err(err) => {
+                     error!("{}", err);
+                     write_read_result = 0;
+                },
+                Ok(read_number) => {
+                     debug!("read bytes = {}", read_number);
+                     write_read_result = read_number;
+                },
+            }
         }
         if write_read_result < 0 {
             let sleep_millis = time::Duration::from_millis(1_000_000);

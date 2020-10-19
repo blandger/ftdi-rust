@@ -1437,7 +1437,7 @@ impl ftdi_context {
         }
         let mut buf_data_ptr;
         let mut transferred_uninit = MaybeUninit::<c_int>::zeroed();
-        let mut transferred: c_int;
+        let mut actual_length: c_int;
 
         while offset < size_to_write {
             let mut write_size = self.writebuffer_chunksize;
@@ -1465,8 +1465,8 @@ impl ftdi_context {
                 error!("actual_written_data_length = [{:?}], {}", 0, error);
                 return Err(error);
             }
-            transferred = unsafe { transferred_uninit.assume_init() };
-            offset += transferred as u32;
+            actual_length = unsafe { transferred_uninit.assume_init() };
+            offset += actual_length as u32;
         }
         debug!("'ftdi_write_data' - OK, transferred = {}", offset);
         Ok(offset as usize)
@@ -1787,7 +1787,112 @@ impl ftdi_context {
         unimplemented!()
     }
 
-    pub fn ftdi_read_data(self, buffer: &Vec<u8>, size_to_read: usize) -> Result<usize> {
+    pub fn ftdi_read_data(&mut self, buffer: &mut Vec<u8>, size_to_read: usize) -> Result<usize> {
+        debug!("start 'ftdi_read_data' ...");
+        self.check_usb_device()?;
+
+        // Packet size sanity check (avoid division by zero)
+        let mut packet_size = self.max_packet_size;
+        if packet_size == 0 {
+            let error = FtdiContextError::UsbCommonError {
+                code: -1, message: "max_packet_size is bogus (zero)".to_string(),
+                backtrace: GenerateBacktrace::generate()
+            };
+            error!("{}", error);
+            return Err(error);
+        }
+        let size = buffer.len();
+        if size <= 0 {
+            warn!("Data buffer is empty, nothing write to usb [{}]", size);
+            return Ok(0);
+        }
+
+        // everything we want is still in the readbuffer?
+        if size <= self.readbuffer_remaining as usize {
+            // memcpy (buf, self.readbuffer+self.readbuffer_offset, size_to_read);
+            unsafe {
+                copy::<u8>(self.readbuffer[..self.readbuffer_offset as usize].as_ptr(),
+                           buffer.as_mut_ptr(),
+                           size);
+            }
+            // Fix offsets
+            self.readbuffer_remaining -= size as u32;
+            self.readbuffer_offset += size as u32;
+            /* printf("Returning bytes from buffer: %d - remaining: %d\n", size, ftdi->readbuffer_remaining); */
+            return Ok(size_to_read);
+        }
+
+        let mut offset: usize = 0;
+        // something still in the readbuffer, but not enough to satisfy 'size'?
+        if self.readbuffer_remaining != 0 {
+            // memcpy (buf, ftdi->readbuffer+ftdi->readbuffer_offset, ftdi->readbuffer_remaining);
+            unsafe {
+                copy::<u8>(self.readbuffer[..self.readbuffer_offset as usize].as_ptr(),
+                           buffer.as_mut_ptr(),
+                           self.readbuffer_remaining as usize);
+            }
+            // Fix offset
+            offset += self.readbuffer_remaining as usize;
+        }
+        let mut actual_length = 1;
+
+        while offset < size && actual_length > 0 {
+            self.readbuffer_remaining = 0;
+            self.readbuffer_offset = 0;
+            /* returns how much received */
+            // ret = libusb_bulk_transfer(ftdi->usb_dev,
+            //                           ftdi->out_ep,
+            //                           ftdi->readbuffer,
+            //                           ftdi->readbuffer_chunksize,
+            //                           &actual_length,
+            //                           ftdi->usb_read_timeout);
+            let mut transferred_uninit = MaybeUninit::<c_int>::zeroed();
+            let mut actual_length: c_int;
+            let buf_data_ptr = self.readbuffer[0..].as_ptr() as *mut c_uchar;
+
+            let transfer_result = unsafe {
+                ffi::libusb_bulk_transfer(self.usb_dev.unwrap(),
+                                          self.out_ep as c_uchar,
+                                          buf_data_ptr,
+                                          self.readbuffer_chunksize as c_int,
+                                          transferred_uninit.as_mut_ptr(),
+                                          self.usb_read_timeout as c_uint )
+            };
+            if transfer_result < 0 {
+                let error = FtdiContextError::UsbCommandError { code: transfer_result,
+                    message: "usb bulk read failed".to_string(),
+                    backtrace: GenerateBacktrace::generate(),
+                    source: Box::new(ftdi_context::get_usb_sys_native_error(transfer_result))
+                };
+                error!("actual_read_data_length = [{:?}], {}", 0, error);
+                return Err(error);
+            }
+            actual_length = unsafe { transferred_uninit.assume_init() };
+            if actual_length > 2 {
+                // skip FTDI status bytes.
+                // Maybe stored in the future to enable modem use
+                let num_of_chunks = actual_length / packet_size;
+                let chunk_remains = actual_length % packet_size;
+                println!("actual_length = {}, num_of_chunks = {}, chunk_remains = {}, readbuffer_offset = {}",
+                         actual_length, num_of_chunks, chunk_remains, self.readbuffer_offset);
+
+                self.readbuffer_offset += 2;
+                actual_length -= 2;
+
+                if actual_length > packet_size - 2 {
+/*                    for (i = 1; i < num_of_chunks; i++) {
+                        memmove(ftdi -> readbuffer + ftdi -> readbuffer_offset + (packet_size - 2) * i,
+                        ftdi -> readbuffer + ftdi -> readbuffer_offset + packet_size * i,
+                        packet_size - 2);
+                    }
+                    ptr::copy(ptr, dst.as_mut_ptr(), elts);
+*/
+
+                } else {
+                    actual_length -= 2*(num_of_chunks-1)+chunk_remains;
+                }
+            }
+        }
         unimplemented!()
     }
 
