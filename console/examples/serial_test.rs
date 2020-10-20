@@ -151,7 +151,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             }
         } else {
-            debug!("read bytes = {}", write_read_result);
             let size_to_read = buffer.len();
             let read_result = ftdi.ftdi_read_data(&mut buffer, size_to_read);
             match read_result {
@@ -165,10 +164,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             }
         }
-        if write_read_result < 0 {
+        /*if write_read_result == 0 {
             let sleep_millis = time::Duration::from_millis(1_000_000);
             thread::sleep(sleep_millis);
-        } else if write_read_result > 0 && !do_write {
+        } else */if write_read_result > 0 && !do_write {
             info!("read {} bytes", write_read_result);
             // fwrite(buf, f, 1, stdout);
             // fflush(stderr);

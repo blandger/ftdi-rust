@@ -547,7 +547,7 @@ impl ftdi_context {
             return Err(error);
         }
         self.usb_dev = Some(device_handle); // store handle
-        device_handle = ptr::null_mut(); // nullify after storing
+        // device_handle = ptr::null_mut(); // nullify after storing
 
         let mut descriptor_uninit: MaybeUninit::<ffi::libusb_device_descriptor> = MaybeUninit::uninit();
         let get_descriptor_result = unsafe { ffi::libusb_get_device_descriptor(*device, descriptor_uninit.as_mut_ptr()) };
@@ -675,7 +675,7 @@ impl ftdi_context {
                 let error = FtdiContextError::UsbCommandError { code: -6,
                     message: "ftdi_usb_reset failed".to_string(),
                     backtrace: GenerateBacktrace::generate(),
-                    source: Box::new(FtdiContextError::None)
+                    source: Box::new(error)
                 };
                 error!("{}", error);
                 return Err(error);
@@ -1792,7 +1792,7 @@ impl ftdi_context {
         self.check_usb_device()?;
 
         // Packet size sanity check (avoid division by zero)
-        let mut packet_size = self.max_packet_size;
+        let packet_size = self.max_packet_size;
         if packet_size == 0 {
             let error = FtdiContextError::UsbCommonError {
                 code: -1, message: "max_packet_size is bogus (zero)".to_string(),
@@ -1801,7 +1801,7 @@ impl ftdi_context {
             error!("{}", error);
             return Err(error);
         }
-        let size = buffer.len();
+        let size = buffer.capacity();
         if size <= 0 {
             warn!("Data buffer is empty, nothing write to usb [{}]", size);
             return Ok(0);
@@ -1834,7 +1834,8 @@ impl ftdi_context {
             // Fix offset
             offset += self.readbuffer_remaining as usize;
         }
-        let mut actual_length = 1;
+
+        let mut actual_length: c_int = 1 as c_int;
 
         while offset < size && actual_length > 0 {
             self.readbuffer_remaining = 0;
@@ -1847,7 +1848,6 @@ impl ftdi_context {
             //                           &actual_length,
             //                           ftdi->usb_read_timeout);
             let mut transferred_uninit = MaybeUninit::<c_int>::zeroed();
-            let mut actual_length: c_int;
             let buf_data_ptr = self.readbuffer[0..].as_ptr() as *mut c_uchar;
 
             let transfer_result = unsafe {
@@ -1880,20 +1880,62 @@ impl ftdi_context {
                 actual_length -= 2;
 
                 if actual_length > packet_size - 2 {
-/*                    for (i = 1; i < num_of_chunks; i++) {
+                    let i = 1;
+                    while num_of_chunks > 0 {
+                        // let source = &self.readbuffer[..(self.readbuffer_offset + (packet_size * i) as u32) as usize];
+                        // let dest= &mut self.readbuffer[0..(self.readbuffer_offset + ((packet_size - 2) * i) as u32) as usize];
+                        // ptr::copy(source.as_ptr(), dest.as_mut_ptr(), (packet_size - 2) as usize);
+                        /*                    for (i = 1; i < num_of_chunks; i++) {
                         memmove(ftdi -> readbuffer + ftdi -> readbuffer_offset + (packet_size - 2) * i,
                         ftdi -> readbuffer + ftdi -> readbuffer_offset + packet_size * i,
                         packet_size - 2);
+                    }*/
                     }
-                    ptr::copy(ptr, dst.as_mut_ptr(), elts);
-*/
+                    if chunk_remains > 2 {
+                        // memmove (ftdi->readbuffer+ftdi->readbuffer_offset+(packet_size - 2)*i,
+                        //     ftdi->readbuffer+ftdi->readbuffer_offset+packet_size*i,
+                        //     chunk_remains-2);
+                        actual_length -= 2 * num_of_chunks;
+                    } else {
+                        actual_length -= 2 * (num_of_chunks - 1) + chunk_remains;
+                    }
+                }
+            } else if actual_length <= 2 {
+                // no more data to read?
+                return Ok( offset );
+            }
+            if actual_length > 0 {
+                // data still fits in buf?
+                if offset + (actual_length as usize) <= size {
+                    // memcpy (buf+offset, ftdi->readbuffer+ftdi->readbuffer_offset, actual_length);
+                    //printf("buf[0] = %X, buf[1] = %X\n", buf[0], buf[1]);
+                    offset += actual_length as usize;
 
+                    /* Did we read exactly the right amount of bytes? */
+                    if offset == size {
+                        //printf("read_data exact rem %d offset %d\n",
+                        //ftdi->readbuffer_remaining, offset);
+                        return Ok(offset);
+                    }
                 } else {
-                    actual_length -= 2*(num_of_chunks-1)+chunk_remains;
+                    // only copy part of the data or size <= readbuffer_chunksize
+                    let part_size = size - offset;
+                    // memcpy (buf+offset, ftdi->readbuffer+ftdi->readbuffer_offset, part_size);
+
+                    self.readbuffer_offset += part_size as u32;
+                    self.readbuffer_remaining = (actual_length - part_size as i32) as u32;
+                    offset += part_size;
+
+                    /* printf("Returning part: %d - size: %d - offset: %d - actual_length: %d - remaining: %d\n",
+                    part_size, size, offset, actual_length, ftdi->readbuffer_remaining); */
+
+                    return Ok(offset);
                 }
             }
+            // should be never reached
+            return Ok(0);
         }
-        unimplemented!()
+        Ok(0)
     }
 
     pub fn ftdi_read_data_set_chunksize(self, chunksize: i32) {
